@@ -14,7 +14,7 @@ extern "C" {
 
 #define SL_MENU_ROWS 6
 
-typedef enum { SL_MI_NUM = 0, SL_MI_BOOL, SL_MI_INFO, SL_MI_ACTION } sl_mi_kind_t;
+typedef enum { SL_MI_NUM = 0, SL_MI_BOOL, SL_MI_INFO, SL_MI_ACTION, SL_MI_CHOICE } sl_mi_kind_t;
 
 typedef struct {
     const char *label;
@@ -22,6 +22,7 @@ typedef struct {
     int value, min, max, step; /* SL_MI_NUM; SL_MI_BOOL uses value 0/1 */
     const char *unit;          /* appended to numbers, e.g. "%" */
     char text[48];             /* SL_MI_INFO */
+    const char *const *opts;   /* SL_MI_CHOICE: names of the values min..max; a tap picks the next one */
 } sl_menu_item_t;
 
 typedef struct {

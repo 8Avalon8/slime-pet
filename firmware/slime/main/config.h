@@ -35,6 +35,8 @@ typedef struct {
     bool ai_comment; /* show the one-line comments the bridge's local model writes after a Claude turn */
     /* v7 */
     bool voice; /* hold the AI key to talk (bridge/slime_buddy.py answers); off = hold for the help page */
+    /* v8 */
+    uint8_t lang; /* sl_lang_t: 0 = Chinese, 1 = English (device and web panel) */
 } slime_cfg_t;
 
 /* Initializes NVS (shared with the progress store) and loads settings; defaults on any error. */

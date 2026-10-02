@@ -19,7 +19,7 @@ After each Claude turn that used tools, a detached child asks a model (LM Studio
 http://localhost:1234 by default) for a one-line comment in the pet's voice and sends it as
 "say <mood> <text>". SLIME_AI=0 turns it off; the endpoint, model and API key are set in
 slime_brain.py (SLIME_LLM_URL / SLIME_LLM_MODEL / SLIME_LLM_KEY). With a cloud API the turn
-summary leaves this computer.
+summary leaves this computer. Comments follow the pet's language setting (SLIME_LANG=zh|en overrides).
 
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"

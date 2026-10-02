@@ -25,7 +25,7 @@
 | **摄像头**（可选模块） | 眼睛跟着你、歪头它也歪、点头开心、摇头委屈、盯着它会害羞、盖住镜头躲猫猫、坐太久提醒你起来，右上角小窗看它看到的画面。全部在设备上算，画面不出设备 |
 | **声音** | 三声部芯片音乐合成器（MML 乐谱 + 滑音），原创开机曲、提示音和两首背景音乐；内置 sfxr 音效引擎，可以在网页上随机生成、替换任意音效 |
 | **交互模块**（可选） | 6 颗彩灯随状态变化，按键、人体感应、光线 |
-| **日常** | 时钟和按时段问候、夜间勿扰、番茄钟、久坐提醒、玩法说明页、一键功能演示（录视频用） |
+| **日常** | 中英文界面、时钟和按时段问候、夜间勿扰、番茄钟、久坐提醒、玩法说明页、一键功能演示（录视频用） |
 | **网页面板** | 浏览器打开 `http://slime.local/`：实时状态、全部设置、音乐试听、自制音效、摄像头画面 |
 | **无线更新** | 双程序位 OTA，新固件跑满 30 秒才确认，崩溃会自动退回旧版 |
 
@@ -82,7 +82,7 @@ python3 bridge/install_hooks.py --uninstall
 
 **Windows / Linux**：`bridge/` 下的脚本同样可用，仍然只用标准库（命令里的 `python3` 换成 `python`）。Windows 按 Espressif 的 USB 厂商号（303A）在注册表里找 COM 口，Linux 用 `/dev/serial/by-id/`；找不到时用环境变量 `SLIME_PORT` 指定，比如 `SLIME_PORT=COM5`。`install_hooks.py` 会把运行它的那个 Python 写进钩子命令。固件工具（`backup_and_flash.py`、`ota_flash.py`）目前仍只支持 macOS。
 
-**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型（Ollama 等本地服务直接可用）。
+**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型（Ollama 等本地服务直接可用）。点评、主动陪伴和语音回答的语言跟随设备的界面语言（通过 Wi-Fi 询问设备），`SLIME_LANG=zh|en` 可以强制指定。
 
 想用云端 API（OpenAI、DeepSeek、OpenRouter 等 OpenAI 兼容接口）时，再设置 `SLIME_LLM_KEY`，例如：
 
@@ -147,6 +147,8 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
   ```bash
   python3 tools/gen_glyphs.py path/to/NotoSansSC.ttf
   ```
+
+- **界面语言**：设备设置第一项「语言 / Language」或网页面板右上角的 EN / 中文 按钮切换，两边同步。设备上的文案都写成 `SL_TR("中文", "English")`（见 `slime_text.h`），英文只用 ASCII，不需要额外字形；网页面板的英文在 `main/web/index.html` 的 `EN_TEXT` 和 `T()` 里。
 
 ## 出问题时
 

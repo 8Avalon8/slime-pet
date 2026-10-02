@@ -184,7 +184,7 @@ static esp_err_t h_status(httpd_req_t *req)
 #define CFG_FIELDS(X)                                                                                                  \
     X(screen_bright, num) X(sleep_bright, num) X(led_bright, num) X(idle_breath, bool) X(motor, bool) X(sleep_min, num) \
     X(tilt, bool) X(mic, bool) X(clap_sens, num) X(dance, bool) X(sound, bool) X(volume, num) X(text_blip, bool)        \
-    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool) X(voice, bool)
+    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool) X(voice, bool) X(lang, num)
 
 static esp_err_t send_config(httpd_req_t *req)
 {

@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+volatile sl_lang_t sl_lang = SL_LANG_ZH;
+
 static const char *utf8_next(const char *s, uint32_t *cp)
 {
     const unsigned char c = (unsigned char)*s;

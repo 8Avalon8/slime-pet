@@ -45,6 +45,18 @@ FALLBACK = {  # used when the model is unreachable
     "milestone": ("proud", "今天好厉害，继续加油！"),
     "welcome": ("happy", "你回来啦！"),
 }
+FALLBACK_EN = {
+    "wait": ("worried", "Claude is still waiting for your OK"),
+    "fails": ("worried", "Easy, one step at a time"),
+    "night": ("worried", "It's late, get some sleep"),
+    "marathon": ("worried", "Long session! Go stretch a bit"),
+    "milestone": ("proud", "Great work today, keep it up!"),
+    "welcome": ("happy", "You're back!"),
+}
+
+
+def tr(zh, en):
+    return en if brain.lang() == "en" else zh
 
 
 def log(*a):
@@ -187,7 +199,7 @@ def proactive_line(rule, situation):
             return got
     except Exception as e:
         vlog("model:", e)
-    return FALLBACK[rule]
+    return (FALLBACK_EN if brain.lang() == "en" else FALLBACK)[rule]
 
 
 # ---------------- voice ----------------
@@ -195,8 +207,13 @@ def proactive_line(rule, situation):
 PUNCT = "，。！？；、,.!?;~～…"
 
 
-def chunks(text, n=brain.LINE_MAX):
-    """Split an answer into dialog lines of at most n characters, at punctuation when possible."""
+def chunks(text, n=None):
+    """Split an answer into dialog lines of at most n characters, at punctuation when possible
+    (English: at word boundaries)."""
+    if brain.lang() == "en":
+        import textwrap
+        return textwrap.wrap(text, n or brain.LINE_MAX_EN)
+    n = n or brain.LINE_MAX
     out, cur = [], ""
     for ch in text:
         cur += ch
@@ -255,18 +272,18 @@ def handle_voice(seq):
         text = brain.transcribe(wav)
     except Exception as e:
         log("voice: speech to text failed:", e)
-        brain.device_cmd("talk worried 听不懂……语音识别没连上\n")
+        brain.device_cmd("talk worried %s\n" % tr("听不懂……语音识别没连上", "Can't understand... no speech-to-text"))
         return
     log("voice: heard", repr(text))
     if not text:
-        brain.device_cmd("talk worried 没听清，再说一遍？\n")
+        brain.device_cmd("talk worried %s\n" % tr("没听清，再说一遍？", "Didn't catch that, say it again?"))
         return
     try:
         got = answer(text)
     except Exception as e:
         log("voice: model failed:", e)
         got = None
-    mood, reply = got or ("worried", "脑袋转不动了，等会再聊")
+    mood, reply = got or ("worried", tr("脑袋转不动了，等会再聊", "My head is stuck, talk later"))
     brain.journal_append("heard", text)
     brain.journal_append("reply", reply)
     log("voice: reply", repr(reply))

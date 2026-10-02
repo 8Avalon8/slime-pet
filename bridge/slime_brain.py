@@ -49,6 +49,7 @@ STT_KEY = os.environ.get("SLIME_STT_KEY", LLM_KEY)
 STT_MODEL = os.environ.get("SLIME_STT_MODEL", "whisper-1")
 
 LINE_MAX = 17  # one 22 px dialog line
+LINE_MAX_EN = 36  # the same line in ASCII
 MOODS = ("happy", "proud", "worried", "neutral")
 
 BASE_PERSONA = (
@@ -237,33 +238,64 @@ def drawable():
     return cps
 
 
-def _parse(out, max_chars):
+_lang = (0, "zh")
+
+
+def lang():
+    """The pet's UI language, "zh" or "en": SLIME_LANG, else its setting over Wi-Fi (cached a minute), else Chinese."""
+    global _lang
+    env = os.environ.get("SLIME_LANG", "").lower()
+    if env in ("zh", "en"):
+        return env
+    if time.time() - _lang[0] > 60:
+        try:
+            got = "en" if json.loads(device_get("/api/config", timeout=1.5)).get("lang") == 1 else "zh"
+        except (OSError, ValueError):
+            got = _lang[1]
+        _lang = (time.time(), got)
+    return _lang[1]
+
+
+def clip(text, max_chars, en):
+    if len(text) <= max_chars:
+        return text
+    text = text[:max_chars]
+    return text.rsplit(" ", 1)[0] if en and " " in text else text  # English: don't cut a word in half
+
+
+def _parse(out, max_chars, en=False):
     m = re.search(r"\{.*\}", out, re.S)
     try:
         data = json.loads(m.group(0)) if m else {"text": out}
     except ValueError:
         data = {"text": out}
-    text = " ".join(str(data.get("text", "")).split()).strip("\"'“”")[:max_chars]
+    text = clip(" ".join(str(data.get("text", "")).split()).strip("\"'“”"), max_chars, en)
     mood = data.get("mood") if data.get("mood") in MOODS else "neutral"
     return mood, text
 
 
 def speak(system, user, max_chars=LINE_MAX, max_tokens=120):
-    """Ask for {"text","mood"} and keep only what the pet can draw. (mood, text) or None."""
-    ok = drawable()
+    """Ask for {"text","mood"} and keep only what the pet can draw. (mood, text) or None.
+    When the pet is set to English, the reply is English, plain ASCII, about twice as many characters."""
+    en = lang() == "en"
+    if en:
+        max_chars = max_chars * LINE_MAX_EN // LINE_MAX
+        system += ("\nWhatever the instructions above say about language or length, write the text in casual English, "
+                   "plain ASCII only, at most %d characters." % max_chars)
+    ok = set(range(0x20, 0x7F)) if en else drawable()
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     mood, text = "neutral", ""
     for attempt in range(2):
         out = chat(messages, max_tokens=max_tokens)
         if out is None:
             return None
-        mood, text = _parse(out, max_chars)
+        mood, text = _parse(out, max_chars, en)
         bad = [ch for ch in text if ord(ch) not in ok]
         if not bad:
             break
         # the pet only has the common characters: ask once more, then drop what it cannot draw
-        messages += [{"role": "assistant", "content": out},
-                     {"role": "user", "content": "换一种说法，不要用这些字：" + "".join(bad)}]
+        retry = "Say it another way, plain ASCII only, without: " if en else "换一种说法，不要用这些字："
+        messages += [{"role": "assistant", "content": out}, {"role": "user", "content": retry + "".join(bad)}]
     text = "".join(ch for ch in text if ord(ch) in ok).strip()
     return (mood, text) if text else None
 
@@ -287,8 +319,9 @@ def comment(summary):
 # ---------------- speech to text ----------------
 
 
-def transcribe(wav, language="zh"):
+def transcribe(wav, language=None):
     """WAV bytes -> text, through an OpenAI-compatible /audio/transcriptions endpoint."""
+    language = language or lang()
     boundary = uuid.uuid4().hex
     parts = []
     for k, v in (("model", STT_MODEL), ("language", language), ("response_format", "json")):

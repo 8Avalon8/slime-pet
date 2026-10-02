@@ -62,12 +62,12 @@ def expect(what, cond, timeout=4.0):
     t0, s = time.time(), None
     while time.time() - t0 < timeout:
         s = status()
-        if cond(s):
+        if "state" in s and cond(s):  # "{}" until the firmware publishes its first status
             print("ok    %s" % what)
             return s
         time.sleep(0.1)
     failures.append(what)
-    print("FAIL  %s  (state=%s msg=%r)" % (what, s and s["state"], s and s["msg"]))
+    print("FAIL  %s  (state=%s msg=%r)" % (what, s.get("state"), s.get("msg")))
     return s
 
 

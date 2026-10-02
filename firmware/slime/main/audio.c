@@ -352,6 +352,14 @@ static volatile int s_bgm_req = -1; /* BGM_COUNT = stop */
 static volatile bool s_muted;       /* night mode: nothing plays, whatever the settings say */
 
 static inline uint32_t ms_now(void) { return (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount()); }
+
+/* push-to-talk recording, written by the audio task, read by the web server */
+#define REC_CAP (AUDIO_REC_RATE * AUDIO_REC_MAX_S)
+#define REC_DECIM (RATE / AUDIO_REC_RATE)
+static int16_t *s_rec;
+static volatile bool s_rec_on, s_rec_ready;
+static volatile size_t s_rec_len;
+static volatile uint32_t s_rec_seq;
 static inline bool before(uint32_t now, uint32_t t) { return (int32_t)(now - t) < 0; }
 
 typedef struct {
@@ -492,15 +500,26 @@ static void audio_task(void *arg)
         if (y.bgm && !s_sound_on) synth_stop(&y);
         if (!s_sound_on && fx.eng) fx.eng->playing = false;
         const bool playing = synth_active(&y) || (fx.eng && fx.eng->playing) || tail > 0;
-        const bool listen = s_mic_on;
+        const bool rec = s_rec_on;
+        const bool listen = s_mic_on || rec;
         if (!listen && !playing) {
             vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
         const uint32_t now = ms_now();
         if (listen && esp_codec_dev_read(mic, in, BLOCK_BYTES) == ESP_CODEC_DEV_OK) {
-            const bool quiet = playing || before(now, play_end + AFTER_PLAY_MS) || before(now, s_hold_until);
+            const bool quiet = rec || playing || before(now, play_end + AFTER_PLAY_MS) || before(now, s_hold_until);
             mic_block(&m, in, quiet, now);
+            if (rec) { /* 48 kHz stereo -> 16 kHz mono: average each run of 3 left-channel samples */
+                size_t n = s_rec_len;
+                for (int i = 0; i + REC_DECIM <= BLOCK_FRAMES && n < REC_CAP; i += REC_DECIM) {
+                    int32_t acc = 0;
+                    for (int k = 0; k < REC_DECIM; k++) acc += in[2 * (i + k)];
+                    s_rec[n++] = (int16_t)(acc / REC_DECIM);
+                }
+                s_rec_len = n;
+                if (n >= REC_CAP) s_rec_on = false; /* full: the main loop notices and wraps up */
+            }
         }
         if (playing) {
             if (fx.eng && fx.eng->playing) {
@@ -522,6 +541,55 @@ static void audio_task(void *arg)
         s_st.bgm = y.bgm && synth_active(&y);
         portEXIT_CRITICAL(&s_lock);
     }
+}
+
+bool audio_rec_start(void)
+{
+    if (!s_rec) s_rec = heap_caps_malloc(REC_CAP * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+    if (!s_rec) return false;
+    portENTER_CRITICAL(&s_lock);
+    s_rec_ready = false; /* the buffer is about to be overwritten */
+    s_rec_len = 0;
+    s_rec_on = true;
+    portEXIT_CRITICAL(&s_lock);
+    return true;
+}
+
+uint32_t audio_rec_stop(uint32_t min_ms)
+{
+    portENTER_CRITICAL(&s_lock);
+    s_rec_on = false;
+    const uint32_t ms = (uint32_t)(s_rec_len * 1000ULL / AUDIO_REC_RATE);
+    if (ms >= min_ms) {
+        s_rec_seq++;
+        s_rec_ready = true;
+    }
+    portEXIT_CRITICAL(&s_lock);
+    return ms;
+}
+
+bool audio_rec_active(void) { return s_rec_on; }
+
+void audio_rec_get(audio_rec_state_t *out)
+{
+    portENTER_CRITICAL(&s_lock);
+    out->seq = s_rec_seq;
+    out->ready = s_rec_ready;
+    out->rec = s_rec_on;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+const int16_t *audio_rec_take(uint32_t seq, size_t *samples)
+{
+    const int16_t *p = NULL;
+    portENTER_CRITICAL(&s_lock);
+    if (s_rec && s_rec_ready && seq == s_rec_seq && !s_rec_on) {
+        s_rec_ready = false;
+        *samples = s_rec_len;
+        p = s_rec;
+    }
+    portEXIT_CRITICAL(&s_lock);
+    return p;
 }
 
 void audio_start(void)

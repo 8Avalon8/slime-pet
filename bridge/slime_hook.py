@@ -12,10 +12,14 @@ injected into the context), always exit 0, short timeouts, and it stays off the 
 while tools/backup_and_flash.py holds the lock. The pet's IP is cached in .device_addr and
 re-resolved (slime.local, IPv4 only: a dual-stack lookup waits ~5 s for a missing AAAA).
 
-After each Claude turn that used tools, a detached child asks a local model (LM Studio,
+Every event is also appended to the slime's journal (slime_brain.py, bridge/.slime/), which
+its personality, diary and voice chat are made from.
+
+After each Claude turn that used tools, a detached child asks a model (LM Studio,
 http://localhost:1234 by default) for a one-line comment in the pet's voice and sends it as
-"say <mood> <text>". The transcript only ever goes to that local endpoint. SLIME_AI=0 turns it
-off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model.
+"say <mood> <text>". SLIME_AI=0 turns it off; the endpoint, model and API key are set in
+slime_brain.py (SLIME_LLM_URL / SLIME_LLM_MODEL / SLIME_LLM_KEY). With a cloud API the turn
+summary leaves this computer. Comments follow the pet's language setting (SLIME_LANG=zh|en overrides).
 
 SLIME_HOST=<host>[:port] sends everything there instead (no cache, no USB fallback), e.g. to
 the simulator or bridge/fake_device.py: SLIME_HOST=127.0.0.1:8080.
@@ -25,7 +29,6 @@ Manual test, without Claude Code:
     python3 slime_hook.py --comment ~/.claude/projects/<project>/<session>.jsonl
     echo '{"hook_event_name":"UserPromptSubmit","session_id":"0123abcd"}' | python3 slime_hook.py
 """
-import fcntl
 import glob
 import http.client
 import json
@@ -33,12 +36,19 @@ import os
 import re
 import socket
 import sys
-import termios
 import time
-import urllib.request
 import zlib
 
-TS = int(time.time() * 1000) & 0xFFFFFFFF  # taken first: async hooks are ordered by this
+WINDOWS = os.name == "nt"
+if WINDOWS:
+    import msvcrt
+    import winreg
+else:
+    import fcntl
+    import termios
+
+TS_S = time.time()
+TS = int(TS_S * 1000) & 0xFFFFFFFF  # taken first: async hooks are ordered by this
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT_LOCK = os.path.join(HERE, ".port.lock")
@@ -46,9 +56,15 @@ ADDR_CACHE = os.path.join(HERE, ".device_addr")  # "<ip>" or "fail <unix time>"
 HOSTNAME = "slime.local"
 SLIME_HOST = os.environ.get("SLIME_HOST", "")  # testing without the board: simulator or fake_device.py
 WIFI_RETRY_S = 60  # after a failed lookup, skip Wi-Fi this long
-# TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561. Matching it also keeps us
-# away from the ROM download port and from unrelated USB serial devices.
-PORT_GLOB = "/dev/cu.usbmodem123456*"
+# TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561 (macOS),
+# /dev/serial/by-id/usb-Espressif_..._123456-if00 (Linux). Matching it also keeps us away
+# from the ROM download port and from unrelated USB serial devices. Windows has no stable
+# name, so there we look the COM port up by Espressif's USB vendor id (see win_ports).
+# SLIME_PORT (e.g. COM5 or /dev/ttyACM0) overrides the search.
+PORT_GLOBS = ["/dev/cu.usbmodem123456*", "/dev/serial/by-id/*_123456-if*"]
+ESPRESSIF_VID = "VID_303A"
+ROM_PID = "PID_1001"  # the chip's built-in USB-Serial/JTAG (download mode), not our CDC
+PORT_HINT = "COMx (USB VID 303A)" if WINDOWS else " / ".join(PORT_GLOBS)
 DETAIL_MAX = 40
 NEEDS_YOU = {"permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"}
 
@@ -207,18 +223,99 @@ def send(line):
         send_usb(data)
 
 
+def _reg_subkeys(key):
+    i = 0
+    while True:
+        try:
+            yield winreg.EnumKey(key, i)
+        except OSError:
+            return
+        i += 1
+
+
+def win_ports():
+    """COM ports of present Espressif USB devices, except the ROM download port."""
+    present = set()
+    try:  # only ports whose device is plugged in right now
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DEVICEMAP\SERIALCOMM") as k:
+            i = 0
+            while True:
+                try:
+                    present.add(str(winreg.EnumValue(k, i)[1]).upper())
+                except OSError:
+                    break
+                i += 1
+    except OSError:
+        return []
+    ports = []
+    root = r"SYSTEM\CurrentControlSet\Enum\USB"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root) as usb:
+            for dev in _reg_subkeys(usb):  # e.g. VID_303A&PID_4001&MI_00
+                ids = dev.upper().split("&")
+                if ESPRESSIF_VID not in ids or ROM_PID in ids:
+                    continue
+                with winreg.OpenKey(usb, dev) as d:
+                    for inst in _reg_subkeys(d):
+                        try:
+                            with winreg.OpenKey(d, inst + r"\Device Parameters") as p:
+                                name = str(winreg.QueryValueEx(p, "PortName")[0]).upper()
+                        except OSError:
+                            continue
+                        if name in present and name not in ports:
+                            ports.append(name)
+    except OSError:
+        pass
+    return sorted(ports, key=lambda n: int(re.sub(r"\D", "", n) or 0))
+
+
+def find_ports():
+    if os.environ.get("SLIME_PORT"):
+        return [os.environ["SLIME_PORT"]]
+    if WINDOWS:
+        return win_ports()
+    for pattern in PORT_GLOBS:
+        ports = sorted(glob.glob(pattern))
+        if ports:
+            return ports
+    return []
+
+
+def try_lock(f):
+    """Non-blocking exclusive lock on the shared port lock file; released when f is closed."""
+    try:
+        if WINDOWS:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _write_win(port, data):
+    # CDC-ACM ignores baud/line settings and Windows has no tty echo, so a plain unbuffered
+    # handle is enough; WriteFile returns once the driver has the bytes.
+    name = port if port.startswith("\\\\") else "\\\\.\\" + port
+    with open(name, "r+b", buffering=0) as f:
+        f.write(b"\n" + data)
+
+
 def send_usb(line):
-    ports = sorted(glob.glob(PORT_GLOB))
+    ports = find_ports()
     if not ports:
         return
-    with open(PORT_LOCK, "a") as lock:
+    with open(PORT_LOCK, "a+") as lock:
         for _ in range(15):  # hooks overlap for a few ms at most; the flasher holds it for minutes
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if try_lock(lock):
                 break
-            except OSError:
-                time.sleep(0.02)
+            time.sleep(0.02)
         else:
+            return
+        data = line if isinstance(line, bytes) else line.encode("ascii", "replace")
+        if WINDOWS:
+            _write_win(ports[0], data)
             return
         # O_NONBLOCK only for open(); the write must then drain before close(), or macOS
         # discards the unsent bytes when no other process holds the port open.
@@ -232,26 +329,16 @@ def send_usb(line):
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
             termios.tcflush(fd, termios.TCIOFLUSH)
             fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
-            data = line if isinstance(line, bytes) else line.encode("ascii", "replace")
             os.write(fd, b"\n" + data)  # "\n" ends any echoed fragment
             termios.tcdrain(fd)  # bounded by the hook timeout if the pet ever stops reading
         finally:
             os.close(fd)
 
 
-# ---------------- AI comments (local model) ----------------
+# ---------------- AI comments (the model call and the memory live in slime_brain.py) ----------------
 
-LLM_URL = os.environ.get("SLIME_LLM_URL", "http://localhost:1234/v1")
-LLM_PREFER = ["gemma-4-e4b-it"]  # small and quick; anything else must be named in SLIME_LLM_MODEL
 COMMENT_GAP_S = 30
-COMMENT_MAX = 17  # one 22 px dialog line
 LAST_COMMENT = os.path.join(HERE, ".last_comment")
-PERSONA = (
-    "你是一只住在桌面上的史莱姆宠物，正在看主人和 Claude Code 一起写代码。"
-    "根据下面这一轮工作的摘要，用一句不超过 16 个汉字的中文口语点评，语气可爱、具体，"
-    "可以夸奖、鼓励、调侃或担心，不要复述命令，不要提到 AI、模型或 Claude 以外的名字。"
-    '只输出 JSON：{"text":"……","mood":"happy|proud|worried|neutral"}。'
-)
 
 
 def _text_of(content):
@@ -305,60 +392,6 @@ def turn_summary(path):
     )
 
 
-GLYPH_FILES = [os.path.join(HERE, "..", "firmware", "slime", "components", "slime_core", f)
-               for f in ("slime_glyphs.c", "slime_glyphs_ext.c")]
-
-
-def drawable():
-    """Code points the pet can draw on its main dialog line (22 px), from its glyph tables."""
-    cps = set(range(0x20, 0x7F))
-    for path in GLYPH_FILES:
-        try:
-            with open(path, encoding="utf-8") as f:
-                cps.update(int(m, 16) for m in re.findall(r"\{0x([0-9a-f]+), 2,", f.read()))
-        except OSError:
-            pass
-    return cps
-
-
-def pick_model():
-    if os.environ.get("SLIME_LLM_MODEL"):
-        return os.environ["SLIME_LLM_MODEL"]
-    with urllib.request.urlopen(LLM_URL + "/models", timeout=3) as r:
-        ids = [m["id"] for m in json.load(r).get("data", [])]
-    return next((m for m in LLM_PREFER if m in ids), None)
-
-
-def ask_model(summary):
-    model = pick_model()
-    if not model:
-        return None
-    ok = drawable()
-    messages = [{"role": "system", "content": PERSONA}, {"role": "user", "content": summary}]
-    mood, text = "neutral", ""
-    for attempt in range(2):
-        body = {"model": model, "max_tokens": 120, "temperature": 0.9, "messages": messages}
-        req = urllib.request.Request(LLM_URL + "/chat/completions", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as r:  # the first call may load the model
-            out = json.load(r)["choices"][0]["message"]["content"]
-        m = re.search(r"\{.*\}", out, re.S)
-        try:
-            data = json.loads(m.group(0)) if m else {"text": out}
-        except ValueError:
-            data = {"text": out}
-        text = " ".join(str(data.get("text", "")).split()).strip("\"'“”")[:COMMENT_MAX]
-        mood = data.get("mood") if data.get("mood") in ("happy", "proud", "worried", "neutral") else "neutral"
-        bad = [ch for ch in text if ord(ch) not in ok]
-        if not bad:
-            break
-        # the pet only has the common characters: ask once more, then drop what it cannot draw
-        messages += [{"role": "assistant", "content": out},
-                     {"role": "user", "content": "换一种说法，不要用这些字：" + "".join(bad)}]
-    text = "".join(ch for ch in text if ord(ch) in ok).strip()
-    return (mood, text) if text else None
-
-
 def comment(path):
     try:
         if time.time() - os.path.getmtime(LAST_COMMENT) < COMMENT_GAP_S:
@@ -368,7 +401,8 @@ def comment(path):
     summary = turn_summary(path)
     if not summary:
         return
-    got = ask_model(summary)
+    import slime_brain
+    got = slime_brain.comment(summary)
     if not got:
         return
     open(LAST_COMMENT, "w").close()
@@ -381,9 +415,13 @@ def spawn_comment(ev):
     if os.environ.get("SLIME_AI", "1") == "0" or not path or not os.path.isfile(path):
         return
     import subprocess
+    kw = {"start_new_session": True}
+    if WINDOWS:  # no console window, and not killed along with the hook's process group
+        kw = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+              | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
     subprocess.Popen([sys.executable, os.path.abspath(__file__), "--comment", path],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True, close_fds=True)
+                     close_fds=True, **kw)
 
 
 def main():
@@ -393,12 +431,15 @@ def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--send":
         sid, event, detail = "00007e57", sys.argv[2], " ".join(sys.argv[3:])
     else:
-        ev = json.load(sys.stdin)
+        ev = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))  # not the ANSI code page
         out = translate(ev)
         if not out:
             return
         event, detail = out
         sid = session_tag(ev.get("session_id", ""))
+    if not sys.argv[1:]:  # first: the device may be slow to answer, the journal never is
+        import slime_brain
+        slime_brain.journal_append(event, clip(detail) if detail else "", sid, TS_S)
     send("cc %s %d %s%s\n" % (sid, TS, event, (" " + clip(detail)) if detail else ""))
     if not sys.argv[1:] and event == "stop":
         spawn_comment(ev)

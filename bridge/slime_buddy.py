@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+"""The slime's resident companion on the computer. Stdlib only, Python 3.9+, any OS.
+
+Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
+
+  * Proactive lines: polls the journal (slime_brain.py) and the device status, and speaks up
+    when Claude has waited for your approval too long, commands keep failing, you are still
+    working deep in the night or for hours on end, a big day passes a milestone, or (camera)
+    you come back after a while. Quiet hours, the focus timer and the demo keep it silent.
+  * Diary: after midnight it writes yesterday's diary to bridge/.slime/diary/YYYY-MM-DD.md.
+  * Voice chat: hold the AI key on the pet and speak; the pet records, this process fetches the
+    recording, turns it into text (SLIME_STT_*), answers in the slime's voice with what it
+    remembers (today's work, what each Claude session is doing, the last few exchanges), and
+    the pet shows the answer.
+
+Usage:
+    python3 slime_buddy.py                 # run (Ctrl-C to stop); -v logs every poll decision
+    python3 slime_buddy.py diary [date]    # write (or rewrite) a diary now and print it
+    python3 slime_buddy.py ask "今天干了啥"   # a voice question without the microphone
+    python3 slime_buddy.py check           # which proactive line would fire right now, and why
+
+Model endpoints and memory location: see slime_brain.py.
+"""
+import datetime as dt
+import json
+import os
+import socket
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import slime_brain as brain  # noqa: E402
+
+POLL_S = 1.5              # device status (voice needs to feel responsive)
+RULES_S = 10
+GAP_S = 180               # at least this long between two proactive lines
+LOCK_PORT = 47817         # one buddy per computer: a bound localhost port, released on exit
+VERBOSE = "-v" in sys.argv
+
+FALLBACK = {  # used when the model is unreachable
+    "wait": ("worried", "Claude 还在等你点头哦"),
+    "fails": ("worried", "别急，慢慢来，会好的"),
+    "night": ("worried", "好晚了，早点休息吧"),
+    "marathon": ("worried", "干了好久了，起来走走吧"),
+    "milestone": ("proud", "今天好厉害，继续加油！"),
+    "welcome": ("happy", "你回来啦！"),
+}
+FALLBACK_EN = {
+    "wait": ("worried", "Claude is still waiting for your OK"),
+    "fails": ("worried", "Easy, one step at a time"),
+    "night": ("worried", "It's late, get some sleep"),
+    "marathon": ("worried", "Long session! Go stretch a bit"),
+    "milestone": ("proud", "Great work today, keep it up!"),
+    "welcome": ("happy", "You're back!"),
+}
+
+
+def tr(zh, en):
+    return en if brain.lang() == "en" else zh
+
+
+def log(*a):
+    print(time.strftime("%H:%M:%S"), *a, flush=True)
+
+
+def vlog(*a):
+    if VERBOSE:
+        log(*a)
+
+
+def ago(sec):
+    sec = int(sec)
+    return "%d 秒前" % sec if sec < 60 else ("%d 分钟前" % (sec // 60) if sec < 3600 else "%d 小时前" % (sec // 3600))
+
+
+# ---------------- what the slime knows ----------------
+
+STATE_WORDS = {"ask": "在等主人批准", "tool": "正在执行", "tool_ok": "正在干活", "tool_fail": "刚失败了一次",
+               "prompt": "刚收到新任务，在思考", "stop": "做完了一轮", "fail": "出错停下了", "end": "会话结束了",
+               "start": "刚开始", "compact": "在整理记忆", "denied": "被主人拒绝了", "interrupt": "被打断了"}
+
+
+def sessions(events, now, limit=3):
+    """Latest state of the most recently active Claude sessions."""
+    last, last_tool = {}, {}
+    for e in events:
+        sid = e.get("sid")
+        if not sid or e.get("ev") not in STATE_WORDS:
+            continue
+        last[sid] = e
+        if e.get("ev") in ("tool", "ask") and e.get("d"):
+            last_tool[sid] = e["d"]
+    out = []
+    for sid, e in sorted(last.items(), key=lambda kv: -kv[1]["t"])[:limit]:
+        if now - e["t"] > 6 * 3600:
+            continue
+        line = "会话 %s：%s %s" % (sid[:4], ago(now - e["t"]), STATE_WORDS[e["ev"]])
+        if sid in last_tool:
+            line += "（最近的操作：%s）" % last_tool[sid]
+        out.append(line)
+    return out
+
+
+def context(now=None):
+    now = time.time() if now is None else now
+    week = brain.journal_read(7, now)
+    today = [e for e in week if brain._day(e["t"]) == brain._day(now)]
+    s = brain.stats(today)
+    lines = ["现在是 %s。" % time.strftime("%H:%M", time.localtime(now)),
+             "今天：完成 %d 轮任务，工具 %d 次，失败 %d 次，主人发了 %d 条指令。"
+             % (s["tasks"], s["tools"], s["fails"], s["prompts"])]
+    if s["top"]:
+        lines.append("今天用得最多的工具：" + "、".join("%s×%d" % kv for kv in s["top"]))
+    lines += sessions(week, now)
+    return week, "\n".join(lines)
+
+
+# ---------------- proactive lines ----------------
+
+
+class Rules:
+    def __init__(self):
+        self.fired = {}          # key -> time
+        self.face_seen = None    # last time a face was in view (camera working)
+        self.away_since = None
+
+    def cooled(self, key, sec, now):
+        return now - self.fired.get(key, 0) > sec
+
+    def observe(self, st, now):
+        cam = (st or {}).get("cam") or {}
+        if not (cam.get("on") and cam.get("ok")):
+            self.face_seen = self.away_since = None  # no camera: no presence
+            return None
+        if cam.get("face"):
+            back = None
+            if self.away_since and now - self.away_since >= 600:
+                back = now - self.away_since
+            self.face_seen, self.away_since = now, None
+            return back
+        if self.face_seen and now - self.face_seen > 20 and not self.away_since:
+            self.away_since = self.face_seen
+        return None
+
+    def check(self, st, now, away=None):
+        """(key, rule, situation) for the line to say now, or None."""
+        week = brain.journal_read(2, now)
+        recent = [e for e in week if now - e["t"] < 600 and e.get("ev") not in ("say", "heard", "reply")]
+        # Claude waiting for approval
+        last = {}
+        for e in week:
+            if e.get("sid") and e.get("ev") in STATE_WORDS:
+                last[e["sid"]] = e
+        for sid, e in last.items():
+            if e["ev"] == "ask" and 120 < now - e["t"] < 3600 and self.cooled("wait:" + sid, 600, now):
+                return ("wait:" + sid, "wait", "Claude 已经等主人批准 %d 分钟了%s。提醒主人去看看。"
+                        % ((now - e["t"]) // 60, "，要做的是：" + e["d"] if e.get("d") else ""))
+        if st and (st.get("demo") or st.get("focus", 0) > 0):
+            return None  # only the approval reminder gets through the focus timer
+        hour = time.localtime(now).tm_hour
+        night_key = "night:" + brain._day(now - 6 * 3600)
+        if hour < 5 and recent and night_key not in self.fired:
+            return (night_key, "night", "现在是凌晨 %d 点，主人还在和 Claude 干活。劝主人休息。" % hour)
+        if st and st.get("night"):
+            return None  # quiet hours: only the reminders above (the pet stays muted anyway)
+        fails = [e for e in recent if e.get("ev") == "tool_fail"]
+        if len(fails) >= 3 and self.cooled("fails", 1200, now):
+            return ("fails", "fails", "最近 10 分钟里命令失败了 %d 次，最近一次：%s。鼓励主人。"
+                    % (len(fails), fails[-1].get("d") or "未知"))
+        active = [e["t"] for e in week if e.get("ev") not in ("say", "heard", "reply")]
+        if active and now - active[-1] < 600:
+            start = active[-1]
+            for t in reversed(active):
+                if start - t > 1200:
+                    break
+                start = t
+            if now - start >= 7200 and self.cooled("marathon", 5400, now):
+                return ("marathon", "marathon", "主人已经连续工作 %.1f 小时了，中间没有超过 20 分钟的休息。劝主人起来活动。"
+                        % ((now - start) / 3600))
+        tasks = sum(1 for e in week if e.get("ev") == "stop" and brain._day(e["t"]) == brain._day(now))
+        if tasks and tasks % 10 == 0:
+            key = "milestone:%s:%d" % (brain._day(now), tasks)
+            if key not in self.fired:
+                return (key, "milestone", "今天已经完成了 %d 轮任务！为主人庆祝。" % tasks)
+        if away and self.cooled("welcome", 1800, now):
+            return ("welcome", "welcome", "主人离开了 %d 分钟，刚刚回到电脑前。欢迎主人回来。" % (away // 60))
+        return None
+
+
+def proactive_line(rule, situation):
+    try:
+        events, ctx = context()
+        _, persona = brain.personality(events)
+        said = brain.recent_said(events)
+        system = (persona + "你要主动对主人说一句不超过 16 个汉字的话。"
+                  + ("别和你最近说过的话重复：" + " / ".join(said) + "。" if said else "") + brain.JSON_TAIL)
+        got = brain.speak(system, "背景：\n%s\n\n情况：%s" % (ctx, situation))
+        if got:
+            return got
+    except Exception as e:
+        vlog("model:", e)
+    return (FALLBACK_EN if brain.lang() == "en" else FALLBACK)[rule]
+
+
+# ---------------- voice ----------------
+
+PUNCT = "，。！？；、,.!?;~～…"
+
+
+def chunks(text, n=None):
+    """Split an answer into dialog lines of at most n characters, at punctuation when possible
+    (English: at word boundaries)."""
+    if brain.lang() == "en":
+        import textwrap
+        return textwrap.wrap(text, n or brain.LINE_MAX_EN)
+    n = n or brain.LINE_MAX
+    out, cur = [], ""
+    for ch in text:
+        cur += ch
+        if ch in PUNCT and len(cur) >= 4:
+            out.append(cur)
+            cur = ""
+        elif len(cur) >= n:
+            cut = max((cur.rfind(p) for p in PUNCT), default=-1)
+            if 3 <= cut < len(cur) - 1:
+                out.append(cur[:cut + 1])
+                cur = cur[cut + 1:]
+            else:
+                out.append(cur)
+                cur = ""
+    if cur.strip():
+        out.append(cur)
+    merged = []
+    for c in (c.strip() for c in out):  # glue short pieces back together while they fit
+        if merged and len(merged[-1]) + len(c) <= n:
+            merged[-1] += c
+        elif c:
+            merged.append(c)
+    return merged
+
+
+def answer(question, now=None):
+    """(mood, text) for a spoken question."""
+    now = time.time() if now is None else now
+    week, ctx = context(now)
+    _, persona = brain.personality(week)
+    history = [e for e in week if e.get("ev") in ("heard", "reply") and now - e["t"] < 1800][-6:]
+    system = (persona + "主人在用语音和你聊天。下面是你知道的事，回答时用得上就用，用不上别硬说：\n" + ctx
+              + "\n用不超过 45 个字回答，可以是两三句短句。" + brain.JSON_TAIL)
+    user = ""
+    for e in history:
+        user += ("主人：" if e["ev"] == "heard" else "你：") + e.get("d", "") + "\n"
+    user += "主人：" + question
+    return brain.speak(system, user, max_chars=48, max_tokens=200)
+
+
+def talk(mood, text):
+    """Show an answer on the pet, a dialog line at a time."""
+    for i, line in enumerate(chunks(text)):
+        if i:
+            time.sleep(2.0 + len(line) / 24)  # typewriter speed is 24 characters per second
+        brain.device_cmd("talk %s %s\n" % (mood, line))
+
+
+def handle_voice(seq):
+    try:
+        wav = brain.device_get("/api/voice.wav?seq=%d" % seq, timeout=5)
+    except Exception as e:
+        log("voice: could not fetch recording %d: %s" % (seq, e))
+        return
+    try:
+        text = brain.transcribe(wav)
+    except Exception as e:
+        log("voice: speech to text failed:", e)
+        brain.device_cmd("talk worried %s\n" % tr("听不懂……语音识别没连上", "Can't understand... no speech-to-text"))
+        return
+    log("voice: heard", repr(text))
+    if not text:
+        brain.device_cmd("talk worried %s\n" % tr("没听清，再说一遍？", "Didn't catch that, say it again?"))
+        return
+    try:
+        got = answer(text)
+    except Exception as e:
+        log("voice: model failed:", e)
+        got = None
+    mood, reply = got or ("worried", tr("脑袋转不动了，等会再聊", "My head is stuck, talk later"))
+    brain.journal_append("heard", text)
+    brain.journal_append("reply", reply)
+    log("voice: reply", repr(reply))
+    talk(mood, reply)
+
+
+# ---------------- diary ----------------
+
+
+def write_diary(day):
+    """day: 'YYYY-MM-DD'. Returns the diary text, or None when there was nothing to write about."""
+    t = time.mktime(dt.date.fromisoformat(day).timetuple()) + 12 * 3600
+    events = [e for e in brain.journal_read(1, t)]
+    work = [e for e in events if e.get("ev") not in ("say", "heard", "reply")]
+    if not work:
+        return None
+    s = brain.stats(events)
+    first, last = time.strftime("%H:%M", time.localtime(work[0]["t"])), time.strftime("%H:%M", time.localtime(work[-1]["t"]))
+    details = []
+    for e in work:
+        if e.get("ev") in ("tool", "tool_fail") and e.get("d") and e["d"] not in details:
+            details.append(e["d"])
+    chats = ["%s：%s" % ("主人" if e["ev"] == "heard" else "我", e.get("d", ""))
+             for e in events if e.get("ev") in ("heard", "reply")]
+    _, persona = brain.personality(brain.journal_read(7, t))
+    facts = ("日期：%s\n主人从 %s 忙到 %s，完成 %d 轮任务，调用工具 %d 次，失败 %d 次，等主人批准 %d 次，"
+             "平均等了 %d 秒。\n用得最多的工具：%s\n做过的一些事：%s\n我今天说过的话：%s\n和主人的聊天：%s"
+             % (day, first, last, s["tasks"], s["tools"], s["fails"], s["asks"], s["wait_avg"],
+                "、".join("%s×%d" % kv for kv in s["top"]) or "无", "；".join(details[-25:]) or "无",
+                " / ".join(s["said"][-10:]) or "无", " / ".join(chats[-10:]) or "无"))
+    text = brain.chat([{"role": "system", "content": persona + "用史莱姆的口吻写今天的日记，150 到 250 字，"
+                        "写具体发生的事和你的心情，可以有一点小感想，不要列清单，不要标题。"},
+                       {"role": "user", "content": facts}], max_tokens=600, temperature=0.8, timeout=180)
+    if not text:
+        return None
+    os.makedirs(brain.DIARY_DIR, exist_ok=True)
+    body = "# %s 史莱姆日记\n\n%s\n\n---\n%s 到 %s · 完成 %d 轮 · 工具 %d 次 · 失败 %d 次\n" % (
+        day, text.strip(), first, last, s["tasks"], s["tools"], s["fails"])
+    with open(os.path.join(brain.DIARY_DIR, day + ".md"), "w", encoding="utf-8") as f:
+        f.write(body)
+    return body
+
+
+def diary_due(now):
+    yesterday = brain._day(now - 86400)
+    return None if os.path.exists(os.path.join(brain.DIARY_DIR, yesterday + ".md")) else yesterday
+
+
+# ---------------- main loop ----------------
+
+
+def single_instance():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", LOCK_PORT))
+    except OSError:
+        sys.exit("slime_buddy.py 已经在运行了。")
+    return s
+
+
+def say(mood, text):
+    brain.device_cmd("say %s %s\n" % (mood, text))
+    brain.journal_append("say", text)
+
+
+def run():
+    lock = single_instance()  # noqa: F841  (held until exit)
+    log("slime buddy: model %s, speech %s, memory %s" % (brain.LLM_URL, brain.STT_URL, brain.HOME))
+    rules, st, voice_seen = Rules(), None, None
+    next_rules, next_diary, last_line, offline_logged = 0, 0, 0, False
+    while True:
+        now = time.time()
+        try:
+            st = json.loads(brain.device_get("/api/status"))
+            if offline_logged:
+                log("device back online")
+            offline_logged = False
+        except Exception as e:
+            if not offline_logged:
+                log("device offline (%s); retrying" % e)
+            offline_logged, st = True, None
+        voice = (st or {}).get("voice") or {}
+        if st and voice_seen is None:
+            voice_seen = voice.get("seq", 0)  # recordings made before we started are not ours
+        if voice.get("ready") and voice.get("seq", 0) != voice_seen:
+            voice_seen = voice["seq"]
+            handle_voice(voice_seen)
+            last_line = time.time()
+        away = rules.observe(st, now)
+        if now >= next_rules or away:
+            next_rules = now + RULES_S
+            try:
+                hook_said = os.path.getmtime(os.path.join(brain.HERE, ".last_comment"))
+            except OSError:
+                hook_said = 0
+            hit = rules.check(st, now, away) if st and now - max(last_line, hook_said) > GAP_S else None
+            vlog("rules:", hit)
+            if hit and (hit[1] == "wait" or st.get("cc", {}).get("status") != "wait"):
+                key, rule, situation = hit
+                mood, text = proactive_line(rule, situation)
+                try:
+                    say("remind" if rule == "wait" else mood, text)
+                    rules.fired[key] = now
+                    last_line = time.time()
+                    log("said (%s): %s" % (rule, text))
+                except Exception as e:
+                    log("could not say:", e)
+        if now >= next_diary:
+            next_diary = now + 600
+            day = diary_due(now)
+            if day and time.localtime(now).tm_hour >= 1:
+                try:
+                    if write_diary(day):
+                        log("diary written:", day)
+                        brain.journal_prune(now)
+                        if st:
+                            say("happy", "昨天的日记写好啦")
+                except Exception as e:
+                    log("diary failed:", e)
+        time.sleep(max(0.2, POLL_S - (time.time() - now)))
+
+
+def main():
+    args = [a for a in sys.argv[1:] if a != "-v"]
+    cmd = args[0] if args else "run"
+    if cmd == "run":
+        try:
+            run()
+        except KeyboardInterrupt:
+            pass
+    elif cmd == "diary":
+        day = args[1] if len(args) > 1 else brain._day(time.time())
+        print(write_diary(day) or "这一天没有可写的事（或者模型没连上）。")
+    elif cmd == "ask" and len(args) > 1:
+        got = answer(args[1])
+        print(got)
+        if got:
+            brain.journal_append("heard", args[1])
+            brain.journal_append("reply", got[1])
+            print(chunks(got[1]))
+            try:
+                talk(*got)
+            except Exception as e:
+                print("(没发到设备：%s)" % e)
+    elif cmd == "check":
+        try:
+            st = json.loads(brain.device_get("/api/status"))
+        except Exception:
+            st = {}
+        print(Rules().check(st, time.time()))
+        print(context()[1])
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

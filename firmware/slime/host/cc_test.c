@@ -59,6 +59,40 @@ int main(void)
     printf("detail sanitized: \"%s\"\n", d);
     assert(!strchr(d, '\xc3'));
 
+    /* subagents: counted by id, idempotent, robust to late and out-of-order lines */
+    cc_init(&c);
+    assert(feed("cc 0000a001 100 prompt", 1000));
+    assert(feed("cc 0000a001 110 sub 1111aaaa Explore", 1000) && r.fx == CC_FX_SPAWN && !strcmp(r.detail, "Explore"));
+    assert(feed("cc 0000a001 111 sub 2222bbbb general-purpose", 1000) && r.fx == CC_FX_SPAWN);
+    assert(feed("cc 0000a001 112 sub 2222bbbb general-purpose", 1000) && r.fx == CC_FX_NONE); /* repeat */
+    assert(cc_subagents(&c, 1000) == 2);
+    /* a sub line older than the session's last line still applies, and does not rewind it */
+    assert(feed("cc 0000a001 200 tool Task: look around", 1001));
+    assert(feed("cc 0000a001 150 sub_end 1111aaaa", 1001) && cc_subagents(&c, 1001) == 1);
+    assert(!feed("cc 0000a001 190 tool_ok", 1001)); /* normal lines are still ordered */
+    /* a start arriving after its own end stays dead; an end without a start leaves no count */
+    assert(feed("cc 0000a001 201 sub_end 3333cccc", 1002) && cc_subagents(&c, 1002) == 1);
+    assert(feed("cc 0000a001 202 sub 3333cccc Plan", 1002) && r.fx == CC_FX_NONE && cc_subagents(&c, 1002) == 1);
+    assert(feed("cc 0000a001 203 sub_end 2222bbbb", 1003) && cc_subagents(&c, 1003) == 0);
+    assert(!feed("cc 0000a001 204 sub", 1003) && !feed("cc 0000a001 205 sub_end zz", 1003)); /* no id */
+    /* more than CC_MAX_SUBS live ones: the oldest is evicted, the count stays bounded */
+    for (int i = 0; i < CC_MAX_SUBS + 3; i++) {
+        char l[64];
+        snprintf(l, sizeof l, "cc 0000a001 %d sub %08x", 300 + i, 0xb000 + i);
+        assert(feed(l, 1004 + i));
+    }
+    assert(cc_subagents(&c, 1020) == CC_MAX_SUBS);
+    /* other sessions add up; a session that goes quiet drops its subagents */
+    assert(feed("cc 0000a002 10 sub 4444dddd", 1100) && cc_subagents(&c, 1100) == CC_MAX_SUBS + 1);
+    assert(feed("cc 0000a002 11 tool Read: x", 1100 + 9 * 60)); /* tool calls keep it alive */
+    assert(cc_subagents(&c, 1100 + 15 * 60) == 1);
+    assert(cc_subagents(&c, 1100 + 20 * 60) == 0);
+    /* a new session start clears everything */
+    assert(feed("cc 0000a002 20 sub 5555eeee", 3000) && feed("cc 0000a002 30 start", 3001) && cc_subagents(&c, 3001) == 0);
+    /* the first line of a session may be a sub line with a large timestamp */
+    assert(feed("cc 0000a003 4000000000 sub 6666ffff", 3002) && feed("cc 0000a003 4000000001 prompt", 3002));
+    assert(cc_status(&c, 3002, NULL, NULL) == CC_THINK);
+
     printf("cc_test: all passed (ok=%u bad=%u stale=%u)\n", c.lines_ok, c.lines_bad, c.lines_stale);
     return 0;
 }

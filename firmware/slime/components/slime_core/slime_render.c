@@ -578,6 +578,73 @@ static void draw_fx(sg_canvas_t *cv, const sl_fx_t *f)
     }
 }
 
+/* ---- helper slimes: the pet's silhouette, flat-shaded at a quarter of the size ---- */
+
+#define MINI_N 18
+
+static void mini_box(const sl_mini_t *m, float *w, float *h, float *by)
+{
+    *w = W0 * m->s * m->sx;
+    *h = H0 * m->s * m->sy;
+    *by = SL_GROUND - m->jump;
+}
+
+static void draw_mini(sg_canvas_t *cv, const sl_pose_t *P, const sl_mini_t *m)
+{
+    const pal_def_t *pd = &PAL[P->pal];
+    float w, h, by;
+    mini_box(m, &w, &h, &by);
+    const float cx = m->x;
+    const float sr = sg_maxf(8, (w + 6) * (1 - sg_minf(0.6f, m->jump / 150)));
+    linear_radial_ellipse(cv, cx, SL_GROUND + 3, sr, sr * 0.14f, sg_hex(pd->rim), pd->rim_a);
+
+    float xy[2 * (2 * MINI_N + 2)];
+    int n = 0;
+    for (int k = 0; k <= MINI_N; k++) { /* right side up, then left side down; the tip curls like the pet's */
+        const float v = (float)k / MINI_N, c = sg_maxf(0, (v - 0.6f) / 0.4f);
+        xy[2 * n] = cx + 0.1f * w * c * c + prof(v) * w;
+        xy[2 * n++ + 1] = by - v * h;
+    }
+    for (int k = MINI_N; k >= 0; k--) {
+        const float v = (float)k / MINI_N, c = sg_maxf(0, (v - 0.6f) / 0.4f);
+        xy[2 * n] = cx + 0.1f * w * c * c - prof(v) * w;
+        xy[2 * n++ + 1] = by - v * h;
+    }
+    sg_paint_t body = {SG_PAINT_VGRAD3, sg_hex(pd->l), sg_hex(pd->b), sg_hex(pd->d), by - h, by, 0.55f};
+    if (P->flash) body = sg_solid(sg_hex(0xffffff));
+    sg_fill_poly(cv, xy, n, &body, 1);
+    if (P->flash) return;
+    sg_stroke_poly(cv, xy, n, true, 1.5f, sg_hex(pd->edge), 0.7f);
+    sg_paint_t white = sg_solid(sg_hex(0xffffff));
+    sg_fill_ellipse(cv, cx - 0.5f * w, by - 0.5f * h, 0.09f * w, 0.15f * h, &white, 0.8f);
+
+    const float ey = by - 0.42f * h, ex = 0.3f * w, er = 0.17f * w;
+    for (int side = -1; side <= 1; side += 2) {
+        const float x = cx + side * ex;
+        if (m->eyes == SL_EYE_OPEN) {
+            sg_fill_ellipse(cv, x, ey, er, er * 1.1f, &white, 1);
+            sg_stroke_ellipse(cv, x, ey, er, er * 1.1f, 1.5f, INK, 1);
+            sg_paint_t pupil = sg_solid(sg_hex(0x0c0d14));
+            sg_fill_ellipse(cv, x + m->look * er * 0.35f, ey + er * 0.1f, er * 0.55f, er * 0.6f, &pupil, 1);
+        } else if (m->eyes == SL_EYE_HAPPY) {
+            stroke_quad(cv, x - er * 0.85f, ey + er * 0.3f, x, ey - er * 0.8f, x + er * 0.85f, ey + er * 0.3f, 2, INK);
+        } else {
+            stroke_quad(cv, x - er * 0.85f, ey, x, ey + er * 0.6f, x + er * 0.85f, ey, 2, INK);
+        }
+    }
+    const float my = by - 0.24f * h;
+    stroke_quad(cv, cx - 0.16f * w, my, cx, my + 0.08f * h, cx + 0.16f * w, my, 2, sg_hex(0x3a0508));
+}
+
+static sl_rect_t mini_bounds(const sl_mini_t *m)
+{
+    float w, h, by;
+    mini_box(m, &w, &h, &by);
+    const float hw = sg_maxf(w * 1.1f, w + 6) + 4;
+    const sl_rect_t r = {(int)floorf(m->x - hw), (int)floorf(by - h - 4), (int)ceilf(m->x + hw + 1), (int)ceilf(SL_GROUND + 8)};
+    return r;
+}
+
 /* ---- public ---- */
 
 static void make_shape(const sl_pose_t *P, shape_t *s)
@@ -608,6 +675,7 @@ sl_rect_t sl_render_bounds(const sl_pose_t *P)
         const sl_rect_t e = {(int)fx - 30, (int)fy - 30, (int)fx + 31, (int)fy + 31};
         r = sl_rect_union(r, e);
     }
+    for (int i = 0; i < P->nmini; i++) r = sl_rect_union(r, mini_bounds(&P->mini[i]));
     r.x0 = imax(0, r.x0 & ~1);
     r.y0 = imax(0, r.y0 & ~1);
     r.x1 = imin(SL_SCREEN, (r.x1 + 1) & ~1);
@@ -633,6 +701,9 @@ sl_rect_t sl_render_slime(sg_canvas_t *cv, const sl_pose_t *P)
                          s.by - pry * 1.5f, s.by + pry * 0.5f, 0.5f};
         sg_fill_ellipse(cv, s.cx, s.by - pry * 0.5f, prx, pry, &pg, 1);
     }
+    for (int i = 0; i < P->nmini; i++) { /* standing helpers are behind the pet */
+        if (!P->mini[i].front) draw_mini(cv, P, &P->mini[i]);
+    }
     if (P->has_glow && !P->flash) {
         draw_glow(cv, &s, sg_hex(P->glow_rgb));
     }
@@ -646,6 +717,9 @@ sl_rect_t sl_render_slime(sg_canvas_t *cv, const sl_pose_t *P)
         draw_eye(cv, e.x + ex, e.y, erx, ery, P->eyes, P->look, 1, pd, P->T, P->blink);
         const at_t m = shape_at(&s, 0.25f);
         draw_mouth(cv, m.x, m.y, 0.54f * W0 * sqrtf(P->sx), 0.12f * W0 * sqrtf(P->sy), P->mouth, P->T);
+    }
+    for (int i = 0; i < P->nmini; i++) { /* flying ones in front */
+        if (P->mini[i].front) draw_mini(cv, P, &P->mini[i]);
     }
     PROF_LAP(SL_PROF_FACE);
     for (int i = 0; i < P->nfx; i++) {

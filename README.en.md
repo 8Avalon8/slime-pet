@@ -14,7 +14,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 
 | | |
 |---|---|
-| **Claude Code** | Thinking / working (shows the tool and command) / waiting for your approval (calls you, flashes, vibrates) / earns EXP and levels up when a task finishes / gets hurt when a command fails. Keeps several sessions apart. Over Wi-Fi, with USB as the fallback |
+| **Claude Code** | Thinking / working (shows the tool and command) / waiting for your approval (calls you, flashes, vibrates) / earns EXP and levels up when a task finishes / gets hurt when a command fails. When Claude starts subagents, that many little helper slimes pop out beside it and hop back when they finish. Keeps several sessions apart. Over Wi-Fi, with USB as the fallback |
 | **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". The transcript only goes to that local model, never to the cloud |
 | **Touch and buttons** | Tap to poke it, hold 1 s for the settings menu; AI key: click to mute, hold for the help page; BOOT key: click to start/stop focus, hold for settings; the Interaction module's left/right keys set the volume |
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
@@ -99,6 +99,7 @@ cd firmware/slime/host
 make sheet       # out/sheet.png: every state side by side
 make test        # cc_track unit tests + pixel-exact check of the dual-core split rendering
 ./host_sim frame levelup 1.5 out/frame.bmp "叮叮叮！升到了 Lv 13！"
+./host_sim helpers 3 2 work out/helpers.bmp   # 3 helper slimes, 2 s after they were sent out
 ```
 
 (PNG output uses macOS `sips`; elsewhere, look at the BMP.)

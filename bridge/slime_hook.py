@@ -21,6 +21,8 @@ Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
     python3 slime_hook.py --comment ~/.claude/projects/<project>/<session>.jsonl
     echo '{"hook_event_name":"UserPromptSubmit","session_id":"0123abcd"}' | python3 slime_hook.py
+    python3 slime_hook.py --send sub "1234abcd Explore"     # a helper slime pops out
+    python3 slime_hook.py --send sub_end 1234abcd           # and hops back
 """
 import fcntl
 import glob
@@ -138,6 +140,15 @@ def translate(ev):
         return ("compact", "")
     if name == "SessionEnd":
         return ("end", "")
+    if name in ("SubagentStart", "SubagentStop"):
+        agent = ev.get("agent_id")
+        if not agent:
+            return None  # older Claude Code: SubagentStop without an id cannot be matched
+        tag = "%08x" % (zlib.crc32(str(agent).encode()) & 0xFFFFFFFF)
+        if name == "SubagentStop":
+            return ("sub_end", tag)
+        kind = ascii_only(ev.get("agent_type") or "").replace(" ", "")
+        return ("sub", (tag + " " + kind).strip())
     return None
 
 

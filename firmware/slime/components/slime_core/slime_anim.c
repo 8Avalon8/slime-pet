@@ -66,25 +66,27 @@ static float blink_at(double T, double per)
     return (float)b;
 }
 
-static void hop(sl_pose_t *S, double t, double period, double h)
+static void hop_vals(double t, double period, double h, float *jump, float *sx, float *sy)
 {
     const double u = fmodp(t, period) / period;
-    S->jump = 0;
+    *jump = 0;
     if (u < 0.2) {
         const double k = sin(u / 0.2 * M_PI);
-        S->sx = (float)(1 + 0.16 * k);
-        S->sy = (float)(1 - 0.18 * k);
+        *sx = (float)(1 + 0.16 * k);
+        *sy = (float)(1 - 0.18 * k);
     } else if (u < 0.8) {
         const double a = (u - 0.2) / 0.6;
-        S->jump = (float)(h * 4 * a * (1 - a));
-        S->sx = 0.92f;
-        S->sy = 1.1f;
+        *jump = (float)(h * 4 * a * (1 - a));
+        *sx = 0.92f;
+        *sy = 1.1f;
     } else {
         const double k = sin((u - 0.8) / 0.2 * M_PI);
-        S->sx = (float)(1 + 0.18 * k);
-        S->sy = (float)(1 - 0.2 * k);
+        *sx = (float)(1 + 0.18 * k);
+        *sy = (float)(1 - 0.2 * k);
     }
 }
+
+static void hop(sl_pose_t *S, double t, double period, double h) { hop_vals(t, period, h, &S->jump, &S->sx, &S->sy); }
 
 static void st_idle(sl_anim_t *a, sl_pose_t *S, float t, double T, float dt)
 {
@@ -354,6 +356,7 @@ void sl_anim_init(sl_anim_t *a, double now)
     memset(a, 0, sizeof(*a));
     a->lv = 12;
     a->hp = 18;
+    a->mini_last = now - 1;
     sl_anim_set_state(a, SL_IDLE, now);
 }
 
@@ -438,6 +441,96 @@ static void jelly(sl_anim_t *a, sl_pose_t *S, float dt)
     for (int i = 0; i < S->nfx; i++) S->fx[i].x += a->j_tdx; /* effects ride along with the slide */
 }
 
+/* ---- helper slimes ---- */
+
+#define MINI_SCALE 0.24f
+#define MINI_IN_S 0.5f   /* pop out of the pet and land on its spot */
+#define MINI_OUT_S 0.45f /* hop back into the pet */
+#define MINI_GAP_S 0.18f /* between two arrivals or departures */
+#define MINI_ARC_PX 120.0f
+/* inner spots first; the outer two stand just behind them */
+static const float MINI_X[SL_MAX_MINIS] = {76, 404, 30, 450};
+
+static inline float lerpf(float a, float b, float u) { return a + (b - a) * u; }
+
+void sl_anim_minis(sl_anim_t *a, double now, sl_pose_t *S)
+{
+    const int want = a->ext_minis < 0 ? 0 : (a->ext_minis > SL_MAX_MINIS ? SL_MAX_MINIS : a->ext_minis);
+    int out = 0;
+    for (int i = 0; i < SL_MAX_MINIS; i++) {
+        if (a->mini_st[i] == 2 && now - a->mini_t[i] >= MINI_OUT_S) a->mini_st[i] = 0;
+        out += a->mini_st[i] == 1;
+    }
+    if (out != want && now - a->mini_last >= MINI_GAP_S) {
+        if (out < want) { /* the lowest free spot */
+            for (int i = 0; i < SL_MAX_MINIS; i++) {
+                if (a->mini_st[i] == 0) {
+                    a->mini_st[i] = 1;
+                    a->mini_t[i] = now;
+                    a->mini_last = now;
+                    break;
+                }
+            }
+        } else { /* the outermost one goes home first */
+            for (int i = SL_MAX_MINIS - 1; i >= 0; i--) {
+                if (a->mini_st[i] == 1) {
+                    a->mini_st[i] = 2;
+                    a->mini_t[i] = now;
+                    a->mini_last = now;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* they leave from, and return to, the middle of the pet's body */
+    const float ox = 240 + S->dx * 6, oj = S->jump * 6 + 0.35f * 230 * S->sy;
+    const bool sleepy = a->state == SL_SLEEP || a->state == SL_MELT;
+    const bool happy = a->state == SL_GREET || a->state == SL_LEVELUP;
+    const double period = a->state == SL_WORK ? 0.42 : (a->state == SL_THINK || a->state == SL_WAIT ? 0.8 : 1.3);
+    S->nmini = 0;
+    for (int k = 0; k < SL_MAX_MINIS; k++) {
+        const int i = SL_MAX_MINIS - 1 - k; /* outer spots first: the inner ones overlap them */
+        if (!a->mini_st[i]) continue;
+        sl_mini_t *m = &S->mini[S->nmini++];
+        const float age = (float)(now - a->mini_t[i]), X = MINI_X[i];
+        m->eyes = sleepy ? SL_EYE_CLOSED : (happy ? SL_EYE_HAPPY : SL_EYE_OPEN);
+        m->look = ox > X ? 0.6f : -0.6f; /* they keep an eye on the big one */
+        m->sx = 0.9f;
+        m->sy = 1.12f;
+        m->front = a->mini_st[i] == 2 || age < MINI_IN_S;
+        if (a->mini_st[i] == 1 && age < MINI_IN_S) {
+            const float u = age / MINI_IN_S, e = 1 - (1 - u) * (1 - u);
+            m->x = lerpf(ox, X, e);
+            m->jump = lerpf(oj, 0, u) + sg_sinf(u * (float)M_PI) * MINI_ARC_PX;
+            m->s = MINI_SCALE * (0.45f + 0.55f * e);
+        } else if (a->mini_st[i] == 2) {
+            const float u = sg_minf(1, age / MINI_OUT_S);
+            m->x = lerpf(X, ox, u * u);
+            m->jump = lerpf(0, oj, u) + sg_sinf(u * (float)M_PI) * MINI_ARC_PX;
+            m->s = MINI_SCALE * (1 - 0.55f * u);
+            m->eyes = SL_EYE_HAPPY; /* job done */
+        } else {
+            m->x = X;
+            m->s = MINI_SCALE;
+            if (sleepy) {
+                m->jump = 0;
+                m->sy = (float)(1 + 0.05 * sin(now * 2 + i));
+                m->sx = 2 - m->sy;
+            } else {
+                const float land = age - MINI_IN_S; /* a squash where it landed, then hops from there */
+                hop_vals(sg_maxf(0, land - 0.2f), period, 12, &m->jump, &m->sx, &m->sy);
+                if (land < 0.2f) {
+                    const float q = sg_sinf(land / 0.2f * (float)M_PI);
+                    m->sx = 1 + 0.25f * q;
+                    m->sy = 1 - 0.25f * q;
+                    m->jump = 0;
+                }
+            }
+        }
+    }
+}
+
 void sl_anim_step(sl_anim_t *a, double now, float dt, sl_pose_t *out)
 {
     float t = (float)(now - a->t0);
@@ -447,6 +540,7 @@ void sl_anim_step(sl_anim_t *a, double now, float dt, sl_pose_t *out)
     }
     sl_anim_pose_raw(a, a->state, t, now, dt, out);
     jelly(a, out, dt);
+    sl_anim_minis(a, now, out);
 }
 
 void sl_anim_message(const sl_anim_t *a, char *buf, size_t len)

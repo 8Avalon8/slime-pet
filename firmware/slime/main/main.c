@@ -275,6 +275,7 @@ typedef struct {
     /* demo: a scripted tour of every feature, for recording a video */
     bool demo, demo_pip;
     int demo_i; /* -1 = countdown */
+    int demo_minis; /* helper slimes the demo wants out */
     double demo_t0;
     char demo_msg[128];
     float tilt_ref;
@@ -405,6 +406,9 @@ static void on_cc(brain_t *b, sl_anim_t *a, const cc_reaction_t *r, double now)
         buzz(HAPTIC_NUDGE);
         sfx(a, SFX_ASK);
         break;
+    case CC_FX_SPAWN: /* a subagent started: a helper slime pops out (sl_anim_minis) */
+        sfx(a, SFX_POKE); /* the same soft boing as a poke: it springs out of the pet */
+        break;
     default:
         break;
     }
@@ -534,8 +538,8 @@ static sl_state_t want_base(const brain_t *b, cc_status_t cs, double now)
 static bool calm_state(sl_state_t s) { return s == SL_IDLE || s == SL_CHARGE || s == SL_SLEEP || s == SL_MELT; }
 
 /* Dialog text for this frame. Claude Code states show what is being worked on. */
-static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, const char *detail, int busy, double now,
-                        char *msg, size_t len)
+static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, const char *detail, int busy, int subs,
+                        double now, char *msg, size_t len)
 {
     const int up = ota_progress();
     if (up >= 0) {
@@ -563,10 +567,16 @@ static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, co
     if (busy > 1) snprintf(tag, sizeof tag, "[%d] ", busy);
     if (a->state == SL_WAIT && cs == CC_WAIT) {
         snprintf(msg, len, "Claude 在等你确认！\n%s%s", tag, detail);
+    } else if (a->state == SL_WORK && cs == CC_WORK && subs > 0) {
+        snprintf(msg, len, "史莱姆和 %d 个分身正在干活！\n%s%s", subs, tag, detail);
     } else if (a->state == SL_WORK && cs == CC_WORK) {
         snprintf(msg, len, "史莱姆正在努力干活！\n%s%s", tag, detail);
+    } else if (a->state == SL_THINK && cs == CC_THINK && subs > 0) {
+        snprintf(msg, len, "史莱姆和 %d 个分身正在思考……\n%s", subs, tag);
     } else if (a->state == SL_THINK && cs == CC_THINK && busy > 1) {
         snprintf(msg, len, "史莱姆正在思考……\n%s", tag);
+    } else if (calm && a->state != SL_SLEEP && subs > 0) { /* background subagents outlive the turn */
+        snprintf(msg, len, "还有 %d 个分身在外面帮忙……", subs);
     } else {
         sl_anim_message(a, msg, len);
         struct tm tm;
@@ -775,18 +785,19 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
                      "{\"state\":\"%s\",\"msg\":\"%s\",\"lv\":%d,\"exp\":%d,\"need\":%d,\"hp\":%.1f,\"up\":%.0f,"
                      "\"perf\":{\"fps\":%.1f,\"render\":%.1f},"
                      "\"bat\":{\"ok\":%s,\"soc\":%d,\"chg\":%s,\"mv\":%d,\"ma\":%d},"
-                     "\"cc\":{\"status\":\"%s\",\"busy\":%d,\"detail\":\"%s\",\"ok\":%u,\"stale\":%u,\"sessions\":[",
+                     "\"cc\":{\"status\":\"%s\",\"busy\":%d,\"subs\":%d,\"detail\":\"%s\",\"ok\":%u,\"stale\":%u,\"sessions\":[",
                      sl_state_name(a->state), e1, b->lv, b->exp, exp_need(b->lv), a->hp, now, perf.fps, perf.render_ms,
                      b->bat_valid ? "true" : "false", b->soc, b->charging ? "true" : "false", b->bat_mv, b->bat_ma, CCN[cs],
-                     cc_busy, e2,
+                     cc_busy, a->ext_minis, e2,
                      (unsigned)b->cc.lines_ok, (unsigned)b->cc.lines_stale);
     bool first = true;
     for (int i = 0; i < CC_MAX_SESSIONS && n < (int)sizeof js - 256; i++) {
         const cc_session_t *se = &b->cc.s[i];
         if (!se->used) continue;
         json_esc(e2, sizeof e2, se->detail);
-        n += snprintf(js + n, sizeof js - n, "%s{\"sid\":\"%08x\",\"st\":\"%s\",\"detail\":\"%s\",\"tools\":%d,\"age\":%.0f}",
-                      first ? "" : ",", (unsigned)se->sid, CCN[se->st], e2, se->tools, now - se->last);
+        n += snprintf(js + n, sizeof js - n,
+                      "%s{\"sid\":\"%08x\",\"st\":\"%s\",\"detail\":\"%s\",\"tools\":%d,\"subs\":%d,\"age\":%.0f}",
+                      first ? "" : ",", (unsigned)se->sid, CCN[se->st], e2, se->tools, cc_session_subs(se), now - se->last);
         first = false;
     }
     json_esc(e2, sizeof e2, ns.ssid);
@@ -869,7 +880,7 @@ static void focus_tick(brain_t *b, sl_anim_t *a, double now)
 
 /* ---------------- demo: every feature in ~2 minutes, for recording a video ---------------- */
 
-typedef enum { DA_NONE = 0, DA_TILT, DA_DANCE, DA_LOOK, DA_SWAY, DA_NUDGE } demo_act_t;
+typedef enum { DA_NONE = 0, DA_TILT, DA_DANCE, DA_LOOK, DA_SWAY, DA_NUDGE, DA_HELPERS } demo_act_t;
 typedef struct {
     sl_state_t st;
     int8_t sfx; /* -1 = none */
@@ -885,6 +896,7 @@ static const demo_step_t DEMO[] = {
     {SL_POKE_R, SFX_POKE, DA_NONE, false, 3, "换一边戳也可以！"},
     {SL_THINK, -1, DA_NONE, false, 4, "我和 Claude Code 连在一起。\nClaude 在思考，我也在思考……"},
     {SL_WORK, -1, DA_NONE, false, 4, "Claude 动手干活时，\n我会显示它正在做什么。"},
+    {SL_WORK, -1, DA_HELPERS, false, 5, "Claude 派出子代理，我就分出小分身！"},
     {SL_WAIT, SFX_ASK, DA_NUDGE, false, 4, "Claude 需要你批准时，\n我会叫你、闪灯、还会震动。"},
     {SL_LEVELUP, SFX_LEVELUP, DA_NONE, false, 4, "完成任务攒经验，还能升级！"},
     {SL_HURT, SFX_HURT, DA_NONE, false, 3.5f, "命令出错时，我会受到伤害……"},
@@ -915,6 +927,7 @@ static void demo_clear_fx(brain_t *b, sl_anim_t *a)
     a->ext_sway = 0;
     a->ext_tilt = 0;
     b->demo_pip = false;
+    b->demo_minis = 0;
 }
 
 static void demo_start(brain_t *b, sl_anim_t *a, double now)
@@ -987,6 +1000,11 @@ static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
         b->demo_pip = true;
         break;
     case DA_SWAY: a->ext_sway = 0.28f * sinf(ph / 2.5f); break;
+    case DA_HELPERS: { /* one, two, three helpers, then they all hop back in */
+        const int n = 1 + (int)(t / 0.7);
+        b->demo_minis = t > demo_len(d) - 1.3f ? 0 : (n < 3 ? n : 3);
+        break;
+    }
     default: break;
     }
     if (t >= demo_len(d)) {
@@ -1500,6 +1518,8 @@ void app_main(void)
         vision_state_t vsn;
         vision_get(&vsn);
         const bool in_demo = demo_tick(&s_b, &a, vsn.ok, now);
+        const int cc_subs = cc_subagents(&s_b.cc, now);
+        a.ext_minis = in_demo ? s_b.demo_minis : cc_subs;
         if (!in_demo) {
             handle_vision(&s_b, &a, cs, now);
             maybe_hum(&s_b, &a, cs, now);
@@ -1684,7 +1704,7 @@ void app_main(void)
         last = cur;
 
         /* dialog: typewriter, blinking cursor when complete; new text keeps the shared prefix */
-        compose_msg(&s_b, &a, cs, cc_detail, cc_busy, now, msg, sizeof msg);
+        compose_msg(&s_b, &a, cs, cc_detail, cc_busy, cc_subs, now, msg, sizeof msg);
         if (init_err[0] && now < 8) snprintf(msg, sizeof msg, "init failed:%s", init_err);
         if (strcmp(msg, typed_msg)) {
             const int keep = common_prefix(msg, typed_msg);

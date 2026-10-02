@@ -19,7 +19,8 @@ HOOK = os.path.join(HERE, "slime_hook.py")
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
 PYTHON = "/usr/bin/python3"  # always present on macOS; the hook is stdlib-only (3.9+)
 TOOL_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"]
-OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure", "PreCompact", "SessionEnd"]
+OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure", "PreCompact", "SessionEnd",
+                "SubagentStart", "SubagentStop"]
 
 
 def is_ours(group):

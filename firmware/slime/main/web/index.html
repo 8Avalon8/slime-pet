@@ -210,10 +210,10 @@ function render(s){
   $('state').textContent=ZH[s.state]||s.state;
   $('msg').textContent=s.msg;
   const c=s.cc;
-  $('cc').innerHTML=`<span class="st-${c.status}">${CC[c.status]||c.status}</span>`+(c.busy>1?` · ${c.busy} 个会话在忙`:'');
+  $('cc').innerHTML=`<span class="st-${c.status}">${CC[c.status]||c.status}</span>`+(c.busy>1?` · ${c.busy} 个会话在忙`:'')+(c.subs?` · ${c.subs} 个分身在帮忙`:'');
   $('ccd').textContent=c.detail||'—';
   $('ccn').textContent=`${c.ok} 条（丢弃过期 ${c.stale}）`;
-  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${CC[x.st]||x.st}</td><td class="d">${esc(x.detail||'—')}</td><td>${x.age<60?x.age.toFixed(0)+' 秒':Math.floor(x.age/60)+' 分'}前</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--dim)">还没有会话。新开一个 Claude Code 会话试试。</td></tr>';
+  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${CC[x.st]||x.st}${x.subs?` +${x.subs} 分身`:''}</td><td class="d">${esc(x.detail||'—')}</td><td>${x.age<60?x.age.toFixed(0)+' 秒':Math.floor(x.age/60)+' 分'}前</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--dim)">还没有会话。新开一个 Claude Code 会话试试。</td></tr>';
   const m=s.imu;
   if(m.ok){$('tilt').style.left=`calc(${50+Math.max(-45,Math.min(45,m.tilt*90))}% - 9px)`;$('tiltv').textContent=(m.tilt>=0?'+':'')+m.tilt.toFixed(2)+' g'+(m.face?' · 屏幕朝下':'');
     $('acc').textContent=`${m.ax.toFixed(2)} / ${m.ay.toFixed(2)} / ${m.az.toFixed(2)} g`}else{$('tiltv').textContent='IMU 不可用';$('acc').textContent='—'}

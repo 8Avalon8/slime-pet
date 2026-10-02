@@ -1,0 +1,11 @@
+name: host tests
+on:
+  push:
+  pull_request:
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cc_track unit test + split render check
+        run: make -C firmware/slime/host test

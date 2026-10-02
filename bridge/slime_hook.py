@@ -17,6 +17,9 @@ http://localhost:1234 by default) for a one-line comment in the pet's voice and 
 "say <mood> <text>". The transcript only ever goes to that local endpoint. SLIME_AI=0 turns it
 off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model.
 
+SLIME_HOST=<host>[:port] sends everything there instead (no cache, no USB fallback), e.g. to
+the simulator or bridge/fake_device.py: SLIME_HOST=127.0.0.1:8080.
+
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
     python3 slime_hook.py --comment ~/.claude/projects/<project>/<session>.jsonl
@@ -41,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORT_LOCK = os.path.join(HERE, ".port.lock")
 ADDR_CACHE = os.path.join(HERE, ".device_addr")  # "<ip>" or "fail <unix time>"
 HOSTNAME = "slime.local"
+SLIME_HOST = os.environ.get("SLIME_HOST", "")  # testing without the board: simulator or fake_device.py
 WIFI_RETRY_S = 60  # after a failed lookup, skip Wi-Fi this long
 # TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561. Matching it also keeps us
 # away from the ROM download port and from unrelated USB serial devices.
@@ -153,8 +157,8 @@ def _cache(value):
     os.replace(tmp, ADDR_CACHE)
 
 
-def _post(ip, data):
-    conn = http.client.HTTPConnection(ip, 80, timeout=1.0)
+def _post(ip, data, port=80):
+    conn = http.client.HTTPConnection(ip, port, timeout=1.0)
     try:
         conn.request("POST", "/api/cmd", body=data, headers={"Content-Type": "text/plain"})
         r = conn.getresponse()
@@ -192,6 +196,13 @@ def send_wifi(data):
 
 def send(line):
     data = line if isinstance(line, bytes) else line.encode("utf-8")  # "say" lines carry Chinese
+    if SLIME_HOST:
+        host, _, port = SLIME_HOST.rpartition(":") if ":" in SLIME_HOST else (SLIME_HOST, "", "80")
+        try:
+            _post(host, data, int(port))
+        except OSError:
+            pass
+        return
     if not send_wifi(data):
         send_usb(data)
 

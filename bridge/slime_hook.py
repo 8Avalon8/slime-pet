@@ -12,10 +12,14 @@ injected into the context), always exit 0, short timeouts, and it stays off the 
 while tools/backup_and_flash.py holds the lock. The pet's IP is cached in .device_addr and
 re-resolved (slime.local, IPv4 only: a dual-stack lookup waits ~5 s for a missing AAAA).
 
-After each Claude turn that used tools, a detached child asks a local model (LM Studio,
+Every event is also appended to the slime's journal (slime_brain.py, bridge/.slime/), which
+its personality, diary and voice chat are made from.
+
+After each Claude turn that used tools, a detached child asks a model (LM Studio,
 http://localhost:1234 by default) for a one-line comment in the pet's voice and sends it as
-"say <mood> <text>". The transcript only ever goes to that local endpoint. SLIME_AI=0 turns it
-off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model.
+"say <mood> <text>". SLIME_AI=0 turns it off; the endpoint, model and API key are set in
+slime_brain.py (SLIME_LLM_URL / SLIME_LLM_MODEL / SLIME_LLM_KEY). With a cloud API the turn
+summary leaves this computer.
 
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
@@ -32,10 +36,10 @@ import socket
 import sys
 import termios
 import time
-import urllib.request
 import zlib
 
-TS = int(time.time() * 1000) & 0xFFFFFFFF  # taken first: async hooks are ordered by this
+TS_S = time.time()
+TS = int(TS_S * 1000) & 0xFFFFFFFF  # taken first: async hooks are ordered by this
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT_LOCK = os.path.join(HERE, ".port.lock")
@@ -228,19 +232,10 @@ def send_usb(line):
             os.close(fd)
 
 
-# ---------------- AI comments (local model) ----------------
+# ---------------- AI comments (the model call and the memory live in slime_brain.py) ----------------
 
-LLM_URL = os.environ.get("SLIME_LLM_URL", "http://localhost:1234/v1")
-LLM_PREFER = ["gemma-4-e4b-it"]  # small and quick; anything else must be named in SLIME_LLM_MODEL
 COMMENT_GAP_S = 30
-COMMENT_MAX = 17  # one 22 px dialog line
 LAST_COMMENT = os.path.join(HERE, ".last_comment")
-PERSONA = (
-    "你是一只住在桌面上的史莱姆宠物，正在看主人和 Claude Code 一起写代码。"
-    "根据下面这一轮工作的摘要，用一句不超过 16 个汉字的中文口语点评，语气可爱、具体，"
-    "可以夸奖、鼓励、调侃或担心，不要复述命令，不要提到 AI、模型或 Claude 以外的名字。"
-    '只输出 JSON：{"text":"……","mood":"happy|proud|worried|neutral"}。'
-)
 
 
 def _text_of(content):
@@ -294,60 +289,6 @@ def turn_summary(path):
     )
 
 
-GLYPH_FILES = [os.path.join(HERE, "..", "firmware", "slime", "components", "slime_core", f)
-               for f in ("slime_glyphs.c", "slime_glyphs_ext.c")]
-
-
-def drawable():
-    """Code points the pet can draw on its main dialog line (22 px), from its glyph tables."""
-    cps = set(range(0x20, 0x7F))
-    for path in GLYPH_FILES:
-        try:
-            with open(path, encoding="utf-8") as f:
-                cps.update(int(m, 16) for m in re.findall(r"\{0x([0-9a-f]+), 2,", f.read()))
-        except OSError:
-            pass
-    return cps
-
-
-def pick_model():
-    if os.environ.get("SLIME_LLM_MODEL"):
-        return os.environ["SLIME_LLM_MODEL"]
-    with urllib.request.urlopen(LLM_URL + "/models", timeout=3) as r:
-        ids = [m["id"] for m in json.load(r).get("data", [])]
-    return next((m for m in LLM_PREFER if m in ids), None)
-
-
-def ask_model(summary):
-    model = pick_model()
-    if not model:
-        return None
-    ok = drawable()
-    messages = [{"role": "system", "content": PERSONA}, {"role": "user", "content": summary}]
-    mood, text = "neutral", ""
-    for attempt in range(2):
-        body = {"model": model, "max_tokens": 120, "temperature": 0.9, "messages": messages}
-        req = urllib.request.Request(LLM_URL + "/chat/completions", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as r:  # the first call may load the model
-            out = json.load(r)["choices"][0]["message"]["content"]
-        m = re.search(r"\{.*\}", out, re.S)
-        try:
-            data = json.loads(m.group(0)) if m else {"text": out}
-        except ValueError:
-            data = {"text": out}
-        text = " ".join(str(data.get("text", "")).split()).strip("\"'“”")[:COMMENT_MAX]
-        mood = data.get("mood") if data.get("mood") in ("happy", "proud", "worried", "neutral") else "neutral"
-        bad = [ch for ch in text if ord(ch) not in ok]
-        if not bad:
-            break
-        # the pet only has the common characters: ask once more, then drop what it cannot draw
-        messages += [{"role": "assistant", "content": out},
-                     {"role": "user", "content": "换一种说法，不要用这些字：" + "".join(bad)}]
-    text = "".join(ch for ch in text if ord(ch) in ok).strip()
-    return (mood, text) if text else None
-
-
 def comment(path):
     try:
         if time.time() - os.path.getmtime(LAST_COMMENT) < COMMENT_GAP_S:
@@ -357,7 +298,8 @@ def comment(path):
     summary = turn_summary(path)
     if not summary:
         return
-    got = ask_model(summary)
+    import slime_brain
+    got = slime_brain.comment(summary)
     if not got:
         return
     open(LAST_COMMENT, "w").close()
@@ -388,6 +330,9 @@ def main():
             return
         event, detail = out
         sid = session_tag(ev.get("session_id", ""))
+    if not sys.argv[1:]:  # first: the device may be slow to answer, the journal never is
+        import slime_brain
+        slime_brain.journal_append(event, clip(detail) if detail else "", sid, TS_S)
     send("cc %s %d %s%s\n" % (sid, TS, event, (" " + clip(detail)) if detail else ""))
     if not sys.argv[1:] and event == "stop":
         spawn_comment(ev)

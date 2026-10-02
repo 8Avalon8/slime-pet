@@ -15,8 +15,11 @@
 | | |
 |---|---|
 | **Claude Code 联动** | 思考 / 干活（显示工具和命令）/ 等你批准（叫你、闪灯、震动）/ 完成任务攒经验升级 / 命令出错受伤。多个会话同时跑也分得清。走 Wi-Fi，USB 兜底 |
-| **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。会话记录只发给本机的模型，不上传云端 |
-| **触摸与按键** | 点一下戳它，长按 1 秒打开设置菜单；AI 键单击静音、长按看玩法说明；BOOT 键单击开始/结束专注、长按打开设置；交互模块左右键调音量 |
+| **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。默认只发给本机的模型，不上传云端；也可以接任意 OpenAI 兼容的云端 API |
+| **记忆与性格** | 电脑端把每个事件记进史莱姆的日记本；按最近 7 天的习惯养成性格（夜猫子、自信、爱操心、劳模……），点评的语气跟着变；每天自动写一篇史莱姆日记 |
+| **主动陪伴** | 电脑上运行 `slime_buddy.py` 后，它会在 Claude 等你批准太久、命令连续失败、深夜还在干活、连续工作几小时、今天完成很多任务、你离开后回来时主动说一句 |
+| **语音对话** | 长按 AI 键说话，松开后电脑把录音转成文字，史莱姆结合记忆回答你，比如"Claude 刚才在干嘛？" |
+| **触摸与按键** | 点一下戳它，长按 1 秒打开设置菜单；AI 键单击静音、长按说话（关掉语音时长按看玩法说明）；BOOT 键单击开始/结束专注、长按打开设置；交互模块左右键调音量 |
 | **动作感应**（板载 IMU） | 歪过来会滑，使劲摇会晕，扣过来放就睡觉 |
 | **麦克风** | 拍两下手打招呼，跟着音乐节拍晃（会排除打字声） |
 | **摄像头**（可选模块） | 眼睛跟着你、歪头它也歪、点头开心、摇头委屈、盯着它会害羞、盖住镜头躲猫猫、坐太久提醒你起来，右上角小窗看它看到的画面。全部在设备上算，画面不出设备 |
@@ -77,7 +80,37 @@ python3 bridge/install_hooks.py --uninstall
 
 钩子是异步的，不会拖慢 Claude；设备不在线时静默失败。
 
-**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型。
+**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型（Ollama 等本地服务直接可用）。
+
+想用云端 API（OpenAI、DeepSeek、OpenRouter 等 OpenAI 兼容接口）时，再设置 `SLIME_LLM_KEY`，例如：
+
+```bash
+export SLIME_LLM_URL=https://api.deepseek.com/v1
+export SLIME_LLM_MODEL=deepseek-chat
+export SLIME_LLM_KEY=sk-...
+```
+
+注意：这时每轮的精简摘要（你的请求前 300 字、最近几次工具操作、Claude 最后一句回复的前 600 字）会发给该服务商。不含文件内容和工具输出。
+
+**记忆、主动陪伴和语音对话**（可选）：钩子会把每个事件记到 `bridge/.slime/journal/`（只在本机，保留 60 天），点评会参考这些记录养成的性格。主动陪伴、日记和语音对话需要另开一个终端常驻运行（Windows / macOS / Linux 都行，只用标准库，走 Wi-Fi）：
+
+```bash
+python3 bridge/slime_buddy.py              # Ctrl-C 结束；-v 打印每次判断
+python3 bridge/slime_buddy.py diary        # 立刻写今天的日记（平时过了零点自动写昨天的）
+python3 bridge/slime_buddy.py ask "今天干了啥"   # 不用麦克风，试一下语音回答
+python3 bridge/slime_brain.py traits       # 看看它现在养成了什么性格
+```
+
+环境变量和钩子一样（`SLIME_LLM_URL` / `SLIME_LLM_MODEL` / `SLIME_LLM_KEY`），记得在运行 buddy 的终端里也设置。日记存在 `bridge/.slime/diary/`。
+
+语音对话还需要一个语音转文字接口（OpenAI 兼容的 `/audio/transcriptions`）。默认用 `SLIME_LLM_URL` 和 `SLIME_LLM_KEY`、模型 `whisper-1`，所以直接用 OpenAI 时不用另外配置；LM Studio 不提供语音转文字，本地可以用 [Speaches](https://github.com/speaches-ai/speaches) 这类兼容服务：
+
+```bash
+export SLIME_STT_URL=http://localhost:8000/v1
+export SLIME_STT_MODEL=Systran/faster-whisper-small
+```
+
+用法：长按 AI 键，屏幕显示"我在听"后说话（最长 10 秒），松开等它回答。录音只在你按住按键时进行，buddy 取走一次后设备上就不再提供。语音和对话内容会发给你配置的语音和模型接口。设备设置里的"长按 AI 键说话"可以关掉，关掉后长按 AI 键恢复为玩法说明。
 
 ## 仓库结构
 
@@ -89,7 +122,7 @@ python3 bridge/install_hooks.py --uninstall
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
 | `firmware/slime/patches/` | 对官方 BSP 的补丁（构建时自动打上） |
-| `bridge/` | 电脑端：Claude Code 钩子、Wi-Fi 配置 |
+| `bridge/` | 电脑端：Claude Code 钩子 `slime_hook.py`、记忆与模型调用 `slime_brain.py`、常驻伙伴 `slime_buddy.py`（主动陪伴、日记、语音对话）、Wi-Fi 配置 |
 | `design/slime_preview.html` | 浏览器版设计稿：形象、状态、果冻物理参数的来源 |
 
 ## 在电脑上出图和测试
@@ -121,7 +154,7 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 
 ## 安全说明
 
-- 网页面板**没有登录**，只适合在自己家的局域网里用。
+- 网页面板**没有登录**，只适合在自己家的局域网里用。语音录音也通过它取走（`/api/voice.wav`，只在你按住 AI 键说话后存在，取一次就失效）。
 - Wi-Fi 密码通过 USB 线（`wifi_setup.py`）或网页面板设置，任何接口都不会把它读出来，日志里也不会出现。
 - 无线更新必须带口令，口令只能通过 USB 线拿到；设备还会检查镜像是不是这个项目的，并校验 SHA-256。
 

@@ -34,7 +34,7 @@ SFX = ["levelup", "done", "hurt", "ask", "poke", "greet", "dizzy", "startle", "s
        "boot", "sulk", "shy"]
 # cc events -> session status (firmware/slime/main/cc_track.c, simplified: no ordering or expiry)
 CC_STATUS = {"start": "idle", "prompt": "think", "tool": "work", "tool_ok": "think", "tool_fail": "think",
-             "ask": "wait", "denied": "think", "stop": "idle", "fail": "idle", "compact": "think"}
+             "ask": "wait", "denied": "think", "stop": "idle", "fail": "idle", "interrupt": "idle", "compact": None}
 CC_RANK = ["idle", "think", "work", "wait"]
 CC_SAY = {"start": "Claude Code 来啦！", "stop": "任务完成！", "tool_fail": "史莱姆受到了伤害！", "fail": "史莱姆受到了伤害！",
           "compact": "脑袋装满了，正在整理记忆……", "ask": "等你批准", "denied": "被拒绝了"}
@@ -60,7 +60,7 @@ def apply_line(line):
             s["tools"] = 0 if event == "prompt" else s["tools"] + (event == "tool")
             if event == "stop":
                 pet["exp"] += 2 + min(s["tools"], 30)
-            s.update(st=CC_STATUS[event], detail=detail or s["detail"], last=time.time())
+            s.update(st=CC_STATUS[event] or s["st"], detail=detail or s["detail"], last=time.time())
         else:
             log("  !! unknown cc event %r: the pet would drop this line" % event)
             return

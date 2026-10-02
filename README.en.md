@@ -101,6 +101,8 @@ make test        # cc_track unit tests + pixel-exact check of the dual-core spli
 ./host_sim frame levelup 1.5 out/frame.bmp "叮叮叮！升到了 Lv 13！"
 ```
 
+**No board?** `make sim` runs the real firmware on your computer (poke, shake and press keys in a window; point the Claude Code hook at it with `SLIME_HOST=127.0.0.1:8080`), and `make simtest` is a scripted end-to-end test. To test only the hook, use `bridge/fake_device.py`. See [firmware/slime/host/README.md](firmware/slime/host/README.md).
+
 (PNG output uses macOS `sips`; elsewhere, look at the BMP.)
 
 ## Customising

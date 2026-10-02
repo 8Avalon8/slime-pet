@@ -9,3 +9,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: cc_track unit test + split render check
         run: make -C firmware/slime/host test
+      - name: Firmware in the simulator, end to end
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q libcjson-dev
+          make -C firmware/slime/host simtest SIM_HEADLESS=1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-screenshots
+          path: firmware/slime/host/out/sim/

@@ -80,6 +80,8 @@ python3 bridge/install_hooks.py --uninstall
 
 The hooks are asynchronous and never slow Claude down; when the device is offline they fail silently.
 
+**Windows / Linux**: the `bridge/` scripts work there too, still stdlib-only (use `python` instead of `python3`). On Windows the COM port is found in the registry by Espressif's USB vendor id (303A); on Linux under `/dev/serial/by-id/`. Set `SLIME_PORT` (e.g. `SLIME_PORT=COM5`) if it is not found. `install_hooks.py` writes the Python that runs it into the hook command. The firmware tools (`backup_and_flash.py`, `ota_flash.py`) are still macOS-only.
+
 **AI comments** (optional): in [LM Studio](https://lmstudio.ai/), download `gemma-4-e4b-it` and start the local server (default `http://localhost:1234`). After each Claude turn that used tools, the hook writes a comment in the background and sends it to the slime. Turn it off in the device settings, or with `SLIME_AI=0` on the computer; `SLIME_LLM_URL` / `SLIME_LLM_MODEL` pick another endpoint or model (local servers such as Ollama work as is). Comments follow the device language (the bridge asks the device over Wi-Fi); `SLIME_LANG=zh|en` overrides it.
 
 To use a cloud API (OpenAI, DeepSeek, OpenRouter or any other OpenAI-compatible endpoint), also set `SLIME_LLM_KEY`, for example:

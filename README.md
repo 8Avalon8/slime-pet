@@ -80,6 +80,8 @@ python3 bridge/install_hooks.py --uninstall
 
 钩子是异步的，不会拖慢 Claude；设备不在线时静默失败。
 
+**Windows / Linux**：`bridge/` 下的脚本同样可用，仍然只用标准库（命令里的 `python3` 换成 `python`）。Windows 按 Espressif 的 USB 厂商号（303A）在注册表里找 COM 口，Linux 用 `/dev/serial/by-id/`；找不到时用环境变量 `SLIME_PORT` 指定，比如 `SLIME_PORT=COM5`。`install_hooks.py` 会把运行它的那个 Python 写进钩子命令。固件工具（`backup_and_flash.py`、`ota_flash.py`）目前仍只支持 macOS。
+
 **AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型（Ollama 等本地服务直接可用）。
 
 想用云端 API（OpenAI、DeepSeek、OpenRouter 等 OpenAI 兼容接口）时，再设置 `SLIME_LLM_KEY`，例如：

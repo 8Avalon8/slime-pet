@@ -1,5 +1,7 @@
 # Slime Pet · 桌面史莱姆
 
+**中文** · [English](README.en.md)
+
 一只住在 [ESP-Mosaico](https://github.com/esp-mosaico/esp-mosaico-bsp) 开发板（ESP32-S31，480×480 圆角 AMOLED）上的桌面宠物史莱姆。它会和 Claude Code 联动：Claude 思考时它也在思考，干活时显示正在做什么，需要你批准时会叫你、闪灯、震动。它还能看见你、听见你、感觉到你在摇它。
 
 *A desktop slime pet for the ESP-Mosaico board (ESP32-S31, 480×480 AMOLED). It mirrors your Claude Code sessions (thinking, working, waiting for your approval), reacts to touch, tilt, claps, your face and head gestures, plays its own chiptunes, and updates over Wi-Fi. Firmware in C on ESP-IDF; everything runs on the device.*
@@ -34,7 +36,7 @@ Wi-Fi 只支持 2.4 GHz。
 ## 快速开始
 
 ```bash
-git clone <this repo> slime-pet && cd slime-pet
+git clone https://github.com/8Avalon8/slime-pet && cd slime-pet
 git clone https://github.com/esp-mosaico/esp-mosaico-bsp third_party/esp-mosaico-bsp
 
 cd firmware/slime

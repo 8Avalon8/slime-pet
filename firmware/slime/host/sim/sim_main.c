@@ -180,6 +180,8 @@ int main(int argc, char **argv)
     }
 #ifdef SIM_SDL
     if (!sim_opt.headless && run_window(scale) >= 0) return 0;
+#else
+    (void)scale;
 #endif
     for (;;) sim_sleep_ms(1000);
 }

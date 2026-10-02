@@ -1,0 +1,21 @@
+# Local flash backups (factory image, NVS snapshots) made by tools/backup_and_flash.py
+backup/
+# The board support package is cloned separately, see README
+third_party/
+/slime_preview.html
+
+# Per-machine state of the Claude Code bridge
+bridge/.port.lock
+bridge/.device_addr*
+bridge/.ota_token
+__pycache__/
+.DS_Store
+
+# Your own tune tables override the bundled ones and are never published
+firmware/slime/main/tunes_local.h
+
+# Not part of the open-source tree: board photos, promo pages, renders, video material
+docs/ref/
+design/*
+!design/slime_preview.html
+media/

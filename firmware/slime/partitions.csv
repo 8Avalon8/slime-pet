@@ -1,0 +1,9 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# nvs/phy never move: settings, Lv/EXP and Wi-Fi credentials live there.
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+# two app slots for OTA: the running one stays intact while the other is written
+ota_0,    app,  ota_0,   0x10000, 7M,
+ota_1,    app,  ota_1,   0x710000, 7M,
+otadata,  data, ota,     0xE10000, 0x2000,
+coredump, data, coredump, 0xE12000, 64K,

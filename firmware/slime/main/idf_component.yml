@@ -1,0 +1,29 @@
+dependencies:
+  idf:
+    version: ">=6.2"
+
+  # Clone https://github.com/esp-mosaico/esp-mosaico-bsp to <repo>/third_party/esp-mosaico-bsp (keep the whole repo: the BSP
+  # references sibling components such as mosaico_boot_splash).
+  esp-mosaico-bsp:
+    path: ../../../third_party/esp-mosaico-bsp/components/esp-mosaico-bsp
+
+  # Touch API header (the BSP's CST9220 driver dependency is not public).
+  espressif/esp_lcd_touch: "^1"
+
+  # USB CDC text console + magic-string reboot into download mode.
+  espressif/esp_tinyusb: "~2.3.0"
+
+  # Interaction module (buttons, PIR, light, 6 WS2812, IR); hot-pluggable, optional.
+  mosaico_module_interact:
+    path: ../../../third_party/esp-mosaico-bsp/components/mosaico_module_interact
+
+  # slime.local
+  espressif/mdns: "^1"
+
+  # cJSON for the web panel API (removed from IDF core in 6.0)
+  espressif/cjson: "^1"
+
+  # Camera module (left slot) + on-device face detection (ESP-DL)
+  mosaico_module_camera:
+    path: ../../../third_party/esp-mosaico-bsp/components/mosaico_module_camera
+  espressif/human_face_detect: "^0.5.0"

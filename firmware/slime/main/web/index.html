@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>史莱姆面板</title>
+<style>
+:root{--bg:#05070d;--win:#000;--line:#f4f6fb;--dim:#8d97ad;--blue:#4aa8ff;--green:#6ee36e;--gold:#ffd84a;--red:#ff5d5d;--amber:#ff9f1a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--line);font:15px/1.5 -apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:16px}
+.win{background:var(--win);border:3px solid var(--line);border-radius:10px;padding:14px 16px;box-shadow:0 0 0 3px var(--win),0 0 0 4px #3a4050}
+.win h2{margin:0 0 10px;font-size:13px;letter-spacing:.12em;color:var(--dim);font-weight:600}
+header.win{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:center;margin-bottom:18px}
+.name{font-size:22px;font-weight:700}
+.bars{display:grid;grid-template-columns:auto 160px auto;gap:4px 8px;align-items:center;font-size:13px}
+.bar{height:10px;border:2px solid var(--line);border-radius:3px;position:relative;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--green);transition:width .4s}
+.chip{padding:2px 10px;border:2px solid var(--line);border-radius:99px;font-size:13px}
+.online{margin-left:auto;font-size:13px;color:var(--dim)}
+.online b{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:6px;vertical-align:1px}
+.online.ok b{background:var(--green)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+.msg{font-size:18px;white-space:pre-line;min-height:2.6em}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:14px}
+.kv dt{color:var(--dim)}.kv dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:3px 6px 3px 0;vertical-align:top}th{color:var(--dim);font-weight:500}
+td.d{overflow-wrap:anywhere;color:#cfe0ff}
+.st-wait{color:var(--amber)}.st-work{color:var(--blue)}.st-think{color:#9fd6ff}.st-idle{color:var(--dim)}
+.meter{height:8px;background:#1b2130;border-radius:4px;overflow:hidden;margin:2px 0 8px}.meter i{display:block;height:100%;background:var(--blue);transition:width .3s}
+.tilt{position:relative;height:28px;border:2px solid #3a4050;border-radius:14px;margin:4px 0 10px}
+.tilt i{position:absolute;top:3px;width:18px;height:18px;border-radius:50%;background:var(--blue);left:calc(50% - 9px);transition:left .3s}
+.row{display:flex;align-items:center;gap:10px;margin:7px 0}
+.row label{flex:0 0 7.5em;color:#dfe5f2}
+.row input[type=range]{flex:1;accent-color:var(--blue)}
+.row output{flex:0 0 3em;text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
+.toggles{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin-top:10px}
+.toggles label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.toggles input{accent-color:var(--blue);width:18px;height:18px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+textarea,select{background:#0b0f1a;color:var(--line);border:2px solid #3a4050;border-radius:6px;font:12px/1.4 ui-monospace,Menlo,monospace;padding:6px}
+textarea{width:100%;height:96px;margin:8px 0;resize:vertical}
+.sfxrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+button{font:inherit;color:var(--line);background:#0d1220;border:2px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer}
+button:hover{background:#1a2440}button:active{transform:translateY(1px)}
+input[type=text],input[type=password]{font:inherit;color:var(--line);background:#0d1220;border:2px solid #3a4050;border-radius:8px;padding:6px 10px;width:100%}
+.form{display:grid;gap:8px}
+.note{font-size:12px;color:var(--dim);margin-top:8px}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#000;border:3px solid var(--line);border-radius:10px;padding:8px 18px;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast.show{opacity:1}
+.span2{grid-column:1/-1}
+@media (max-width:520px){main{padding:12px}.toggles{grid-template-columns:1fr}.row label{flex-basis:6.5em}}
+</style>
+</head>
+<body>
+<main>
+<header class="win">
+  <div class="name">史莱姆 <span id="lv">Lv -</span></div>
+  <div class="bars">
+    <span>HP</span><div class="bar"><i id="hp" style="width:0"></i></div><span id="hpv">-</span>
+    <span>EXP</span><div class="bar"><i id="exp" style="width:0;background:var(--gold)"></i></div><span id="expv">-</span>
+  </div>
+  <span class="chip" id="state">-</span>
+  <span class="online" id="online"><b></b><span>连接中…</span></span>
+</header>
+
+<div class="grid">
+  <section class="win span2">
+    <h2>史莱姆在说</h2>
+    <div class="msg" id="msg">…</div>
+  </section>
+
+  <section class="win">
+    <h2>CLAUDE CODE</h2>
+    <dl class="kv">
+      <dt>总体</dt><dd id="cc">-</dd>
+      <dt>正在做</dt><dd id="ccd">-</dd>
+      <dt>收到事件</dt><dd id="ccn">-</dd>
+    </dl>
+    <table style="margin-top:10px"><thead><tr><th>会话</th><th>状态</th><th>工具</th><th>最近</th></tr></thead><tbody id="sess"></tbody></table>
+  </section>
+
+  <section class="win">
+    <h2>传感器</h2>
+    <div style="font-size:13px;color:var(--dim)">倾斜 <span id="tiltv">-</span></div>
+    <div class="tilt"><i id="tilt"></i></div>
+    <dl class="kv">
+      <dt>加速度</dt><dd id="acc">-</dd>
+      <dt>交互模块</dt><dd id="mod">-</dd>
+      <dt>人体感应</dt><dd id="pir">-</dd>
+      <dt>摄像头</dt><dd id="cam">-</dd>
+    </dl>
+    <div style="margin-top:8px"><button id="camBtn" type="button">看摄像头画面</button></div>
+    <img id="camImg" alt="" style="display:none;width:100%;max-width:240px;margin-top:8px;border:2px solid var(--line);border-radius:8px;transform:scaleX(-1)">
+    <div style="font-size:13px;color:var(--dim);margin-top:8px">光线 <span id="lightv">-</span></div>
+    <div class="meter"><i id="light" style="width:0;background:var(--gold)"></i></div>
+    <div style="font-size:13px;color:var(--dim)">声音 <span id="micv">-</span></div>
+    <div class="meter"><i id="mic" style="width:0;background:var(--green)"></i></div>
+  </section>
+
+  <section class="win">
+    <h2>系统</h2>
+    <dl class="kv">
+      <dt>帧率</dt><dd id="fps">-</dd>
+      <dt>电池</dt><dd id="bat">-</dd>
+      <dt>Wi-Fi</dt><dd id="net">-</dd>
+      <dt>内存</dt><dd id="heap">-</dd>
+      <dt>运行</dt><dd id="up">-</dd>
+      <dt>最近重启</dt><dd id="boots">-</dd>
+    </dl>
+  </section>
+
+  <section class="win span2">
+    <h2>设置（改动即保存）</h2>
+    <div class="grid" style="gap:4px 28px">
+      <div>
+        <div class="row"><label>屏幕亮度</label><input type="range" min="10" max="100" data-k="screen_bright"><output></output></div>
+        <div class="row"><label>睡觉时亮度</label><input type="range" min="0" max="100" data-k="sleep_bright"><output></output></div>
+        <div class="row"><label>彩灯亮度</label><input type="range" min="0" max="255" data-k="led_bright"><output></output></div>
+        <div class="row"><label>自动睡眠</label><input type="range" min="1" max="60" data-k="sleep_min" data-unit="分"><output></output></div>
+      </div>
+      <div>
+        <div class="row"><label>音量</label><input type="range" min="0" max="100" data-k="volume"><output></output></div>
+        <div class="row"><label>拍手灵敏度</label><input type="range" min="1" max="10" data-k="clap_sens"><output></output></div>
+        <div class="row"><label>久坐提醒</label><input type="range" min="0" max="120" step="10" data-k="sit_min" data-unit="分"><output></output></div>
+        <div class="row"><label>专注时长</label><input type="range" min="5" max="90" step="5" data-k="focus_min" data-unit="分"><output></output></div>
+        <div class="row"><label>勿扰开始</label><input type="range" min="0" max="23" data-k="night_start" data-unit="点"><output></output></div>
+        <div class="row"><label>勿扰结束</label><input type="range" min="0" max="23" data-k="night_end" data-unit="点"><output></output></div>
+        <div class="toggles">
+          <label><input type="checkbox" data-k="sound">音效</label>
+          <label><input type="checkbox" data-k="bgm">空闲时哼歌</label>
+          <label><input type="checkbox" data-k="text_blip">对话打字音</label>
+          <label><input type="checkbox" data-k="idle_breath">空闲呼吸灯</label>
+          <label><input type="checkbox" data-k="motor">震动</label>
+          <label><input type="checkbox" data-k="mic">麦克风</label>
+          <label><input type="checkbox" data-k="dance">跟着声音晃</label>
+          <label><input type="checkbox" data-k="tilt">倾斜滑动</label>
+          <label><input type="checkbox" data-k="show_fps">屏幕显示帧率</label>
+          <label><input type="checkbox" data-k="camera">摄像头</label>
+          <label><input type="checkbox" data-k="cam_pip">摄像头小窗常开</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="win">
+    <h2>常用</h2>
+    <div class="btns" id="quick">
+      <button data-c="focus start">开始专注</button>
+      <button data-c="focus stop">结束专注</button>
+      <button data-c="demo">▶ 功能演示（录视频用）</button>
+      <button data-c="demo stop">停止演示</button>
+    </div>
+    <div class="note">功能演示约 2 分钟，开始前有 3 秒倒数。演示中长按屏幕可以提前结束。勿扰开始和结束设成同一个钟点就是关闭夜间勿扰。</div>
+  </section>
+
+  <section class="win">
+    <h2>让史莱姆演一下</h2>
+    <div class="btns" id="states"></div>
+    <div class="note">手动切换的状态会保持 15 秒，并播放对应的音效（如果开着）。</div>
+  </section>
+
+  <section class="win">
+    <h2>音乐试听</h2>
+    <div class="btns" id="music"></div>
+    <div class="note">设备合成的 8-bit 音效与小曲（乐谱在 main/tunes_original.h，可以换成自己的）。背景音乐会被任何音效打断。</div>
+  </section>
+
+  <section class="win">
+    <h2>自制音效（sfxr）</h2>
+    <div class="btns" id="gens"></div>
+    <textarea id="sfxjson" spellcheck="false" placeholder="点上面的按钮随机生成，或者把 jsfxr 网站导出的 JSON 粘贴到这里"></textarea>
+    <div class="sfxrow">
+      <button id="sfxplay">▶ 试听</button>
+      <select id="sfxslot"></select>
+      <button id="sfxset">设为这个场景的音效</button>
+      <button id="sfxreset">恢复原版</button>
+    </div>
+    <div class="note">每点一次生成按钮都会随机出一个新音效并立刻播放。想精调可以去 <a href="https://sfxr.me/" target="_blank" rel="noopener" style="color:var(--blue)">sfxr.me</a>（jsfxr）调好，再把导出的 JSON 贴进来。替换后的音效存在设备里，重启也在。</div>
+  </section>
+
+  <section class="win">
+    <h2>WI-FI</h2>
+    <form class="form" id="wifi" autocomplete="off">
+      <input type="text" name="ssid" placeholder="网络名称（仅 2.4 GHz）" maxlength="32" required>
+      <input type="password" name="psk" placeholder="密码" maxlength="63">
+      <button type="submit">连接</button>
+    </form>
+    <div class="note">切换网络后本页会断开，到新网络里打开 http://slime.local 。面板没有登录保护，只在局域网内使用。</div>
+  </section>
+</div>
+</main>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const ZH = {idle:'发呆',greet:'开心',pokeL:'被戳',pokeR:'被戳',dizzy:'头晕',sleep:'睡觉',think:'思考',wait:'等你确认',levelup:'升级',hurt:'受伤',charge:'吃电',melt:'化掉',metal:'金属化',work:'干活'};
+const CC = {idle:'空闲',think:'思考中',work:'干活中',wait:'等你确认'};
+const DEMO = ['greet','think','work','wait','levelup','hurt','dizzy','sleep','charge','melt','metal','idle'];
+let toastT;
+function toast(s){const t=$('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1400)}
+function fmtUp(s){s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h} 小时 ${m} 分`:`${m} 分 ${s%60} 秒`}
+function pct(v,max){return Math.max(0,Math.min(100,v/max*100))+'%'}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function render(s){
+  $('lv').textContent='Lv '+s.lv;
+  $('hp').style.width=pct(s.hp,20);$('hpv').textContent=s.hp.toFixed(0)+'/20';
+  $('exp').style.width=pct(s.exp,s.need);$('expv').textContent=s.exp+'/'+s.need;
+  $('state').textContent=ZH[s.state]||s.state;
+  $('msg').textContent=s.msg;
+  const c=s.cc;
+  $('cc').innerHTML=`<span class="st-${c.status}">${CC[c.status]||c.status}</span>`+(c.busy>1?` · ${c.busy} 个会话在忙`:'');
+  $('ccd').textContent=c.detail||'—';
+  $('ccn').textContent=`${c.ok} 条（丢弃过期 ${c.stale}）`;
+  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${CC[x.st]||x.st}</td><td class="d">${esc(x.detail||'—')}</td><td>${x.age<60?x.age.toFixed(0)+' 秒':Math.floor(x.age/60)+' 分'}前</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--dim)">还没有会话。新开一个 Claude Code 会话试试。</td></tr>';
+  const m=s.imu;
+  if(m.ok){$('tilt').style.left=`calc(${50+Math.max(-45,Math.min(45,m.tilt*90))}% - 9px)`;$('tiltv').textContent=(m.tilt>=0?'+':'')+m.tilt.toFixed(2)+' g'+(m.face?' · 屏幕朝下':'');
+    $('acc').textContent=`${m.ax.toFixed(2)} / ${m.ay.toFixed(2)} / ${m.az.toFixed(2)} g`}else{$('tiltv').textContent='IMU 不可用';$('acc').textContent='—'}
+  const d=s.mod;
+  $('mod').textContent=d.ok?'已连接':'未插入';
+  $('pir').textContent=d.ok?(d.motion?'检测到有人':'没人'):'—';
+  $('light').style.width=d.ok?d.light+'%':'0';$('lightv').textContent=d.ok?d.light:'—';
+  const k=s.cam||{};
+  $('cam').textContent=!k.on?'已关闭':(k.ok?(k.face?`看到 ${k.n} 张脸（推理 ${k.ms} ms，${k.size>0.55?'很近':'位置 '+k.fx.toFixed(1)}）`:`没看到人（推理 ${k.ms} ms）`):(k.err==='ESP_ERR_NOT_FOUND'||k.err==='ESP_ERR_TIMEOUT'?'未插入（插左槽）':`未就绪：${k.err}`));
+  const a=s.mic;
+  $('mic').style.width=a.ok?pct(a.db+70,70):'0';$('micv').textContent=a.ok?`${a.db.toFixed(0)} dB（底噪 ${a.floor.toFixed(0)}，拍手 ${a.claps} 次）`:'未启用';
+  $('fps').textContent=`${s.perf.fps.toFixed(1)} fps（渲染 ${s.perf.render.toFixed(1)} ms）`;
+  const b=s.bat;$('bat').textContent=b.ok?`${b.soc}% · ${(b.mv/1000).toFixed(2)} V · ${b.ma} mA`+(b.chg?' · 充电中':''):'—';
+  const RZ={power_on:'上电',brownout:'欠压',panic:'崩溃',task_wdt:'看门狗',int_wdt:'看门狗',wdt:'看门狗',software:'软件重启',usb:'USB',external:'外部复位',deep_sleep:'睡眠唤醒'};
+  $('boots').innerHTML=(s.boots||[]).slice(0,5).map(x=>(RZ[x.reason]||x.reason)+(x.prev_up!==undefined?`（前次运行 ${fmtUp(x.prev_up)}，${(x.mv/1000).toFixed(2)} V，${x.ma} mA）`:'')).join('<br>')||'—';
+  const n=s.net;$('net').textContent=n.state==='connected'?`${n.ssid} · ${n.ip} · ${n.rssi} dBm`:n.state;
+  $('heap').textContent=`内部 ${s.heap.int} KB · PSRAM ${(s.heap.psram/1024).toFixed(1)} MB 可用`;
+  $('up').textContent=fmtUp(s.up);
+}
+let fails=0;
+async function poll(){
+  try{const r=await fetch('/api/status',{cache:'no-store'});render(await r.json());fails=0;$('online').className='online ok';$('online').lastChild.textContent='在线'}
+  catch(e){if(++fails>1){$('online').className='online';$('online').lastChild.textContent='离线'}}
+  setTimeout(poll,1000)}
+
+function showVal(el){const o=el.parentElement.querySelector('output');if(o)o.textContent=el.value+(el.dataset.unit||'')}
+async function loadCfg(){
+  const c=await (await fetch('/api/config')).json();
+  document.querySelectorAll('[data-k]').forEach(el=>{const v=c[el.dataset.k];if(v===undefined)return;if(el.type==='checkbox')el.checked=v;else{el.value=v;showVal(el)}})}
+let pend={},saveT;
+document.querySelectorAll('[data-k]').forEach(el=>{
+  el.addEventListener('input',()=>{if(el.type==='range')showVal(el);pend[el.dataset.k]=el.type==='checkbox'?el.checked:Number(el.value);clearTimeout(saveT);saveT=setTimeout(save,300)})});
+async function save(){const body=JSON.stringify(pend);pend={};
+  try{const r=await fetch('/api/config',{method:'POST',body});if(!r.ok)throw 0;toast('已保存')}catch(e){toast('保存失败')}}
+
+$('states').innerHTML=DEMO.map(s=>`<button data-s="${s}">${ZH[s]}</button>`).join('');
+$('states').addEventListener('click',e=>{const s=e.target.dataset.s;if(!s)return;fetch('/api/cmd',{method:'POST',body:'state '+s}).then(()=>toast(ZH[s]))});
+const MUSIC=[['sfx boot','开机'],['sfx levelup','升级'],['sfx done','完成'],['sfx ask','等你批准'],['sfx greet','打招呼'],
+  ['sfx sleep','睡觉'],['sfx wake','醒来'],['sfx shy','害羞'],['sfx sulk','委屈'],['bgm 0','城镇小曲'],['bgm 1','旅途进行曲'],['bgm stop','停止']];
+$('music').innerHTML=MUSIC.map(([c,n])=>`<button data-c="${c}">${n}</button>`).join('');
+$('music').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c})});
+/* sfxr generators: the classic presets from DrPetter's sfxr (public domain) */
+const SFXR_ZH={levelup:'升级',done:'完成',hurt:'受伤',ask:'等你批准',poke:'被戳',greet:'打招呼',dizzy:'晕了',startle:'吓一跳',
+  sleep:'睡觉',wake:'醒来',hello:'应声',blip:'打字音',boot:'开机',sulk:'委屈',shy:'害羞'};
+function sfxrBase(){return {wave_type:0,p_env_attack:0,p_env_sustain:.3,p_env_punch:0,p_env_decay:.4,p_base_freq:.3,p_freq_limit:0,
+  p_freq_ramp:0,p_freq_dramp:0,p_vib_strength:0,p_vib_speed:0,p_arp_mod:0,p_arp_speed:0,p_duty:0,p_duty_ramp:0,p_repeat_speed:0,
+  p_pha_offset:0,p_pha_ramp:0,p_lpf_freq:1,p_lpf_ramp:0,p_lpf_resonance:0,p_hpf_freq:0,p_hpf_ramp:0,sound_vol:.25}}
+const rnd=n=>Math.floor(Math.random()*(n+1)), frnd=x=>Math.random()*x;
+const GENS={
+  '拾取':p=>{p.p_base_freq=.4+frnd(.5);p.p_env_sustain=frnd(.1);p.p_env_decay=.1+frnd(.4);p.p_env_punch=.3+frnd(.3);
+    if(rnd(1)){p.p_arp_speed=.5+frnd(.2);p.p_arp_mod=.2+frnd(.4)}},
+  '激光':p=>{p.wave_type=rnd(2);if(p.wave_type==2&&rnd(1))p.wave_type=rnd(1);p.p_base_freq=.5+frnd(.5);
+    p.p_freq_limit=Math.max(.2,p.p_base_freq-.2-frnd(.6));p.p_freq_ramp=-.15-frnd(.2);
+    if(rnd(2)==0){p.p_base_freq=.3+frnd(.6);p.p_freq_limit=frnd(.1);p.p_freq_ramp=-.35-frnd(.3)}
+    if(rnd(1)){p.p_duty=frnd(.5);p.p_duty_ramp=frnd(.2)}else{p.p_duty=.4+frnd(.5);p.p_duty_ramp=-frnd(.7)}
+    p.p_env_sustain=.1+frnd(.2);p.p_env_decay=frnd(.4);if(rnd(1))p.p_env_punch=frnd(.3);
+    if(rnd(2)==0){p.p_pha_offset=frnd(.2);p.p_pha_ramp=-frnd(.2)}if(rnd(1))p.p_hpf_freq=frnd(.3)},
+  '爆炸':p=>{p.wave_type=3;if(rnd(1)){p.p_base_freq=.1+frnd(.4);p.p_freq_ramp=-.1+frnd(.4)}else{p.p_base_freq=.2+frnd(.7);p.p_freq_ramp=-.2-frnd(.2)}
+    p.p_base_freq*=p.p_base_freq;if(rnd(4)==0)p.p_freq_ramp=0;if(rnd(2)==0)p.p_repeat_speed=.3+frnd(.5);
+    p.p_env_sustain=.1+frnd(.3);p.p_env_decay=frnd(.5);if(rnd(1)==0){p.p_pha_offset=-.3+frnd(.9);p.p_pha_ramp=-frnd(.3)}
+    p.p_env_punch=.2+frnd(.6);if(rnd(1)){p.p_vib_strength=frnd(.7);p.p_vib_speed=frnd(.6)}
+    if(rnd(2)==0){p.p_arp_speed=.6+frnd(.3);p.p_arp_mod=.8-frnd(1.6)}},
+  '强化':p=>{if(rnd(1))p.wave_type=1;else p.p_duty=frnd(.6);
+    if(rnd(1)){p.p_base_freq=.2+frnd(.3);p.p_freq_ramp=.1+frnd(.4);p.p_repeat_speed=.4+frnd(.4)}
+    else{p.p_base_freq=.2+frnd(.3);p.p_freq_ramp=.05+frnd(.2);if(rnd(1)){p.p_vib_strength=frnd(.7);p.p_vib_speed=frnd(.6)}}
+    p.p_env_sustain=frnd(.4);p.p_env_decay=.1+frnd(.4)},
+  '受击':p=>{p.wave_type=rnd(2);if(p.wave_type==2)p.wave_type=3;if(p.wave_type==0)p.p_duty=frnd(.6);
+    p.p_base_freq=.2+frnd(.6);p.p_freq_ramp=-.3-frnd(.4);p.p_env_sustain=frnd(.1);p.p_env_decay=.1+frnd(.2);if(rnd(1))p.p_hpf_freq=frnd(.3)},
+  '跳跃':p=>{p.p_duty=frnd(.6);p.p_base_freq=.3+frnd(.3);p.p_freq_ramp=.1+frnd(.2);p.p_env_sustain=.1+frnd(.3);
+    p.p_env_decay=.1+frnd(.2);if(rnd(1))p.p_hpf_freq=frnd(.3);if(rnd(1))p.p_lpf_freq=1-frnd(.6)},
+  '哔':p=>{p.wave_type=rnd(1);if(p.wave_type==0)p.p_duty=frnd(.6);p.p_base_freq=.2+frnd(.4);
+    p.p_env_sustain=.1+frnd(.1);p.p_env_decay=frnd(.2);p.p_hpf_freq=.1},
+};
+function sfxParams(){try{return JSON.parse($('sfxjson').value)}catch(e){toast('JSON 格式不对');return null}}
+function sfxPost(o){return fetch('/api/sfxr',{method:'POST',body:JSON.stringify(o)}).then(r=>{if(!r.ok)throw 0;return r})}
+async function sfxSlots(){try{const d=await (await fetch('/api/sfxr')).json();const cur=$('sfxslot').value;
+  $('sfxslot').innerHTML=d.slots.map(x=>`<option value="${x.name}">${SFXR_ZH[x.name]||x.name}${x.custom?'（已替换）':''}</option>`).join('');
+  if(cur)$('sfxslot').value=cur}catch(e){}}
+$('gens').innerHTML=Object.keys(GENS).map(k=>`<button data-g="${k}">${k}</button>`).join('');
+$('gens').addEventListener('click',e=>{const g=e.target.dataset.g;if(!g)return;const p=sfxrBase();GENS[g](p);
+  for(const k in p)if(typeof p[k]=='number'&&k!='wave_type')p[k]=Math.round(p[k]*1e4)/1e4;
+  $('sfxjson').value=JSON.stringify(p);sfxPost({slot:'preview',params:p}).catch(()=>toast('播放失败'))});
+$('sfxplay').onclick=()=>{const p=sfxParams();if(p)sfxPost({slot:'preview',params:p}).catch(()=>toast('播放失败'))};
+$('sfxset').onclick=()=>{const p=sfxParams();if(!p)return;const s=$('sfxslot').value;
+  sfxPost({slot:s,params:p}).then(()=>{toast('已替换「'+(SFXR_ZH[s]||s)+'」');sfxSlots()}).catch(()=>toast('保存失败'))};
+$('sfxreset').onclick=()=>{const s=$('sfxslot').value;
+  sfxPost({slot:s,reset:true}).then(()=>{toast('「'+(SFXR_ZH[s]||s)+'」已恢复原版');sfxSlots()}).catch(()=>toast('失败'))};
+sfxSlots();
+$('quick').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c}).then(()=>toast(e.target.textContent))});
+$('wifi').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);
+  try{const r=await fetch('/api/wifi',{method:'POST',body:JSON.stringify({ssid:f.get('ssid'),psk:f.get('psk')||''})});if(!r.ok)throw 0;e.target.psk.value='';toast('正在切换网络…')}catch(x){toast('提交失败')}});
+let camT=null;
+$('camBtn').addEventListener('click',()=>{const img=$('camImg');
+  if(camT){clearInterval(camT);camT=null;img.style.display='none';$('camBtn').textContent='看摄像头画面';return}
+  const load=()=>{img.src='/api/cam.bmp?t='+Date.now()};load();camT=setInterval(load,700);img.style.display='block';$('camBtn').textContent='关闭画面'});
+loadCfg().catch(()=>{});poll();
+</script>
+</body>
+</html>

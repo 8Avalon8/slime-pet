@@ -22,7 +22,6 @@ Manual test, without Claude Code:
     python3 slime_hook.py --comment ~/.claude/projects/<project>/<session>.jsonl
     echo '{"hook_event_name":"UserPromptSubmit","session_id":"0123abcd"}' | python3 slime_hook.py
 """
-import fcntl
 import glob
 import http.client
 import json
@@ -30,10 +29,17 @@ import os
 import re
 import socket
 import sys
-import termios
 import time
 import urllib.request
 import zlib
+
+WINDOWS = os.name == "nt"
+if WINDOWS:
+    import msvcrt
+    import winreg
+else:
+    import fcntl
+    import termios
 
 TS = int(time.time() * 1000) & 0xFFFFFFFF  # taken first: async hooks are ordered by this
 
@@ -42,9 +48,15 @@ PORT_LOCK = os.path.join(HERE, ".port.lock")
 ADDR_CACHE = os.path.join(HERE, ".device_addr")  # "<ip>" or "fail <unix time>"
 HOSTNAME = "slime.local"
 WIFI_RETRY_S = 60  # after a failed lookup, skip Wi-Fi this long
-# TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561. Matching it also keeps us
-# away from the ROM download port and from unrelated USB serial devices.
-PORT_GLOB = "/dev/cu.usbmodem123456*"
+# TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561 (macOS),
+# /dev/serial/by-id/usb-Espressif_..._123456-if00 (Linux). Matching it also keeps us away
+# from the ROM download port and from unrelated USB serial devices. Windows has no stable
+# name, so there we look the COM port up by Espressif's USB vendor id (see win_ports).
+# SLIME_PORT (e.g. COM5 or /dev/ttyACM0) overrides the search.
+PORT_GLOBS = ["/dev/cu.usbmodem123456*", "/dev/serial/by-id/*_123456-if*"]
+ESPRESSIF_VID = "VID_303A"
+ROM_PID = "PID_1001"  # the chip's built-in USB-Serial/JTAG (download mode), not our CDC
+PORT_HINT = "COMx (USB VID 303A)" if WINDOWS else " / ".join(PORT_GLOBS)
 DETAIL_MAX = 40
 NEEDS_YOU = {"permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"}
 
@@ -196,18 +208,99 @@ def send(line):
         send_usb(data)
 
 
+def _reg_subkeys(key):
+    i = 0
+    while True:
+        try:
+            yield winreg.EnumKey(key, i)
+        except OSError:
+            return
+        i += 1
+
+
+def win_ports():
+    """COM ports of present Espressif USB devices, except the ROM download port."""
+    present = set()
+    try:  # only ports whose device is plugged in right now
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DEVICEMAP\SERIALCOMM") as k:
+            i = 0
+            while True:
+                try:
+                    present.add(str(winreg.EnumValue(k, i)[1]).upper())
+                except OSError:
+                    break
+                i += 1
+    except OSError:
+        return []
+    ports = []
+    root = r"SYSTEM\CurrentControlSet\Enum\USB"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root) as usb:
+            for dev in _reg_subkeys(usb):  # e.g. VID_303A&PID_4001&MI_00
+                ids = dev.upper().split("&")
+                if ESPRESSIF_VID not in ids or ROM_PID in ids:
+                    continue
+                with winreg.OpenKey(usb, dev) as d:
+                    for inst in _reg_subkeys(d):
+                        try:
+                            with winreg.OpenKey(d, inst + r"\Device Parameters") as p:
+                                name = str(winreg.QueryValueEx(p, "PortName")[0]).upper()
+                        except OSError:
+                            continue
+                        if name in present and name not in ports:
+                            ports.append(name)
+    except OSError:
+        pass
+    return sorted(ports, key=lambda n: int(re.sub(r"\D", "", n) or 0))
+
+
+def find_ports():
+    if os.environ.get("SLIME_PORT"):
+        return [os.environ["SLIME_PORT"]]
+    if WINDOWS:
+        return win_ports()
+    for pattern in PORT_GLOBS:
+        ports = sorted(glob.glob(pattern))
+        if ports:
+            return ports
+    return []
+
+
+def try_lock(f):
+    """Non-blocking exclusive lock on the shared port lock file; released when f is closed."""
+    try:
+        if WINDOWS:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _write_win(port, data):
+    # CDC-ACM ignores baud/line settings and Windows has no tty echo, so a plain unbuffered
+    # handle is enough; WriteFile returns once the driver has the bytes.
+    name = port if port.startswith("\\\\") else "\\\\.\\" + port
+    with open(name, "r+b", buffering=0) as f:
+        f.write(b"\n" + data)
+
+
 def send_usb(line):
-    ports = sorted(glob.glob(PORT_GLOB))
+    ports = find_ports()
     if not ports:
         return
-    with open(PORT_LOCK, "a") as lock:
+    with open(PORT_LOCK, "a+") as lock:
         for _ in range(15):  # hooks overlap for a few ms at most; the flasher holds it for minutes
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if try_lock(lock):
                 break
-            except OSError:
-                time.sleep(0.02)
+            time.sleep(0.02)
         else:
+            return
+        data = line if isinstance(line, bytes) else line.encode("ascii", "replace")
+        if WINDOWS:
+            _write_win(ports[0], data)
             return
         # O_NONBLOCK only for open(); the write must then drain before close(), or macOS
         # discards the unsent bytes when no other process holds the port open.
@@ -221,7 +314,6 @@ def send_usb(line):
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
             termios.tcflush(fd, termios.TCIOFLUSH)
             fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) & ~os.O_NONBLOCK)
-            data = line if isinstance(line, bytes) else line.encode("ascii", "replace")
             os.write(fd, b"\n" + data)  # "\n" ends any echoed fragment
             termios.tcdrain(fd)  # bounded by the hook timeout if the pet ever stops reading
         finally:
@@ -370,9 +462,13 @@ def spawn_comment(ev):
     if os.environ.get("SLIME_AI", "1") == "0" or not path or not os.path.isfile(path):
         return
     import subprocess
+    kw = {"start_new_session": True}
+    if WINDOWS:  # no console window, and not killed along with the hook's process group
+        kw = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+              | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
     subprocess.Popen([sys.executable, os.path.abspath(__file__), "--comment", path],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True, close_fds=True)
+                     close_fds=True, **kw)
 
 
 def main():
@@ -382,7 +478,7 @@ def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--send":
         sid, event, detail = "00007e57", sys.argv[2], " ".join(sys.argv[3:])
     else:
-        ev = json.load(sys.stdin)
+        ev = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))  # not the ANSI code page
         out = translate(ev)
         if not out:
             return

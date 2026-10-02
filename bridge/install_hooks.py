@@ -17,7 +17,9 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOOK = os.path.join(HERE, "slime_hook.py")
 SETTINGS = os.path.expanduser("~/.claude/settings.json")
-PYTHON = "/usr/bin/python3"  # always present on macOS; the hook is stdlib-only (3.9+)
+# /usr/bin/python3 is always present on macOS; elsewhere use the Python running this script.
+# The hook is stdlib-only (3.9+).
+PYTHON = "/usr/bin/python3" if sys.platform == "darwin" else sys.executable
 TOOL_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"]
 OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure", "PreCompact", "SessionEnd"]
 
@@ -28,6 +30,8 @@ def is_ours(group):
 
 def main():
     uninstall = "--uninstall" in sys.argv
+    # Claude Code runs hooks through Git Bash on Windows: forward slashes survive both shells.
+    python, hook = (PYTHON.replace("\\", "/"), HOOK.replace("\\", "/")) if os.name == "nt" else (PYTHON, HOOK)
     with open(SETTINGS, encoding="utf-8") as f:
         settings = json.load(f)
     backup = "%s.bak-slime-%s" % (SETTINGS, time.strftime("%Y%m%d-%H%M%S"))
@@ -37,7 +41,7 @@ def main():
     for event in TOOL_EVENTS + OTHER_EVENTS:
         groups = [g for g in hooks.get(event, []) if not is_ours(g)]
         if not uninstall:
-            group = {"hooks": [{"type": "command", "command": '%s "%s"' % (PYTHON, HOOK), "timeout": 5, "async": True}]}
+            group = {"hooks": [{"type": "command", "command": '"%s" "%s"' % (python, hook), "timeout": 5, "async": True}]}
             if event in TOOL_EVENTS:
                 group = {"matcher": "*", **group}
             groups.append(group)

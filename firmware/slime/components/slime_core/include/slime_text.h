@@ -13,6 +13,13 @@ extern "C" {
 
 typedef enum { SL_FONT_14 = 0, SL_FONT_18, SL_FONT_22, SL_FONT_COUNT } sl_font_t;
 
+/* UI language, set by the firmware from its settings. English text sticks to printable ASCII,
+ * which the atlas always holds, so it needs no extra glyphs. */
+typedef enum { SL_LANG_ZH = 0, SL_LANG_EN, SL_LANG_COUNT } sl_lang_t;
+extern volatile sl_lang_t sl_lang;
+/* Picks the string for the current language; both stay literals, so tools/gen_glyphs.py sees them. */
+#define SL_TR(zh, en) (sl_lang == SL_LANG_EN ? (en) : (zh))
+
 typedef struct {
     uint32_t cp;
     uint8_t font;

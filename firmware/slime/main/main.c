@@ -329,13 +329,13 @@ static bool night_now(const brain_t *b)
 static const char *greet_text(void)
 {
     struct tm tm;
-    if (!net_local_time(&tm)) return "欢迎回来！";
+    if (!net_local_time(&tm)) return SL_TR("欢迎回来！", "Welcome back!");
     const int h = tm.tm_hour;
-    if (h >= 5 && h < 11) return "早上好！今天也一起加油！";
-    if (h >= 11 && h < 13) return "中午好！记得吃饭哦。";
-    if (h >= 13 && h < 18) return "下午好！欢迎回来～";
-    if (h >= 18 && h < 23) return "晚上好！辛苦啦。";
-    return "这么晚了……早点休息哦。";
+    if (h >= 5 && h < 11) return SL_TR("早上好！今天也一起加油！", "Morning! Let's do our best today!");
+    if (h >= 11 && h < 13) return SL_TR("中午好！记得吃饭哦。", "Good afternoon! Don't forget lunch.");
+    if (h >= 13 && h < 18) return SL_TR("下午好！欢迎回来～", "Good afternoon! Welcome back~");
+    if (h >= 18 && h < 23) return SL_TR("晚上好！辛苦啦。", "Good evening! You worked hard.");
+    return SL_TR("这么晚了……早点休息哦。", "So late... Get some rest soon.");
 }
 
 static void react(brain_t *b, sl_anim_t *a, sl_state_t st, double now, const char *fmt, ...)
@@ -369,7 +369,7 @@ static void on_cc(brain_t *b, sl_anim_t *a, const cc_reaction_t *r, double now)
     const bool fanfare = a->state == SL_LEVELUP; /* never cut a level-up short */
     switch (r->fx) {
     case CC_FX_HELLO:
-        if (sl_state_duration(a->state) == 0) react(b, a, SL_GREET, now, "Claude Code 来啦！");
+        if (sl_state_duration(a->state) == 0) react(b, a, SL_GREET, now, SL_TR("Claude Code 来啦！", "Claude Code is here!"));
         sfx(a, SFX_HELLO);
         break;
     case CC_FX_DONE: {
@@ -383,7 +383,7 @@ static void on_cc(brain_t *b, sl_anim_t *a, const cc_reaction_t *r, double now)
             buzz(HAPTIC_FANFARE);
             sfx(a, SFX_LEVELUP);
         } else if (!fanfare) {
-            react(b, a, SL_GREET, now, "任务完成！获得了 %d 点经验值。", gain);
+            react(b, a, SL_GREET, now, SL_TR("任务完成！获得了 %d 点经验值。", "Task done! Gained %d EXP."), gain);
             buzz(HAPTIC_TICK);
             sfx(a, SFX_DONE);
         }
@@ -392,13 +392,13 @@ static void on_cc(brain_t *b, sl_anim_t *a, const cc_reaction_t *r, double now)
     }
     case CC_FX_FAIL:
         if (!fanfare && a->state != SL_HURT) {
-            react(b, a, SL_HURT, now, "史莱姆受到了 %d 点伤害！\n%s", 1 + (int)(strlen(r->detail) % 5), r->detail);
+            react(b, a, SL_HURT, now, SL_TR("史莱姆受到了 %d 点伤害！\n%s", "The slime takes %d damage!\n%s"), 1 + (int)(strlen(r->detail) % 5), r->detail);
             buzz(HAPTIC_HURT);
             sfx(a, SFX_HURT);
         }
         break;
     case CC_FX_COMPACT:
-        if (!fanfare) react(b, a, SL_DIZZY, now, "脑袋装满了，正在整理记忆……");
+        if (!fanfare) react(b, a, SL_DIZZY, now, SL_TR("脑袋装满了，正在整理记忆……", "Head's full, tidying up memories..."));
         sfx(a, SFX_DIZZY);
         break;
     case CC_FX_ASK:
@@ -431,7 +431,7 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
             memcpy(ssid, t1, t2 - t1);
             strcpy(psk, t2 + 1);
             if (net_set_wifi(ssid, psk) == ESP_OK) {
-                snprintf(b->notice, sizeof b->notice, "正在连接 Wi-Fi……\n%s", ssid);
+                snprintf(b->notice, sizeof b->notice, SL_TR("正在连接 Wi-Fi……\n%s", "Connecting to Wi-Fi...\n%s"), ssid);
                 b->notice_until = now + 15;
             }
         }
@@ -539,7 +539,7 @@ static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, co
 {
     const int up = ota_progress();
     if (up >= 0) {
-        snprintf(msg, len, "正在无线更新固件…… %d%%\n请不要断电", up);
+        snprintf(msg, len, SL_TR("正在无线更新固件…… %d%%\n请不要断电", "Updating firmware... %d%%\nPlease keep the power on"), up);
         return;
     }
     if (b->demo) {
@@ -552,7 +552,7 @@ static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, co
     }
     const bool calm = a->state == SL_IDLE || a->state == SL_CHARGE || a->state == SL_SLEEP || a->state == SL_MELT;
     if (calm && now < b->slide_until) {
-        snprintf(msg, len, "哇——要滑倒啦！");
+        snprintf(msg, len, SL_TR("哇——要滑倒啦！", "Whoa, I'm slipping!"));
         return;
     }
     if (calm && now < b->notice_until) {
@@ -562,20 +562,20 @@ static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, co
     char tag[16] = "";
     if (busy > 1) snprintf(tag, sizeof tag, "[%d] ", busy);
     if (a->state == SL_WAIT && cs == CC_WAIT) {
-        snprintf(msg, len, "Claude 在等你确认！\n%s%s", tag, detail);
+        snprintf(msg, len, SL_TR("Claude 在等你确认！\n%s%s", "Claude needs your OK!\n%s%s"), tag, detail);
     } else if (a->state == SL_WORK && cs == CC_WORK) {
-        snprintf(msg, len, "史莱姆正在努力干活！\n%s%s", tag, detail);
+        snprintf(msg, len, SL_TR("史莱姆正在努力干活！\n%s%s", "The slime is hard at work!\n%s%s"), tag, detail);
     } else if (a->state == SL_THINK && cs == CC_THINK && busy > 1) {
-        snprintf(msg, len, "史莱姆正在思考……\n%s", tag);
+        snprintf(msg, len, SL_TR("史莱姆正在思考……\n%s", "The slime is thinking...\n%s"), tag);
     } else {
         sl_anim_message(a, msg, len);
         struct tm tm;
         if (calm && net_local_time(&tm)) { /* second line: the time, and what is going on */
             const size_t n = strlen(msg);
             char extra[48] = "";
-            if (b->focus_end) snprintf(extra, sizeof extra, " · 专注中，还剩 %d 分钟", (int)((b->focus_end - now) / 60) + 1);
-            else if (b->break_end) snprintf(extra, sizeof extra, " · 休息中");
-            else if (b->night) snprintf(extra, sizeof extra, " · 夜间勿扰");
+            if (b->focus_end) snprintf(extra, sizeof extra, SL_TR(" · 专注中，还剩 %d 分钟", " · Focus: %d min left"), (int)((b->focus_end - now) / 60) + 1);
+            else if (b->break_end) snprintf(extra, sizeof extra, SL_TR(" · 休息中", " · On a break"));
+            else if (b->night) snprintf(extra, sizeof extra, SL_TR(" · 夜间勿扰", " · Quiet hours"));
             snprintf(msg + n, len - n, "\n%02d:%02d%s", tm.tm_hour, tm.tm_min, extra);
         }
     }
@@ -616,7 +616,7 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
             break;
         case SEV_SHAKE:
             if (a->state != SL_LEVELUP && a->state != SL_DIZZY) {
-                react(b, a, SL_DIZZY, now, "别晃啦，头好晕……");
+                react(b, a, SL_DIZZY, now, SL_TR("别晃啦，头好晕……", "Stop shaking, I'm so dizzy..."));
                 sfx(a, SFX_DIZZY);
             }
             b->last_activity = now;
@@ -628,7 +628,7 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
             const int v = c.volume + (ev.kind == SEV_BTN_R ? 10 : -10);
             c.volume = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
             cfg_set(&c);
-            react(b, a, ev.kind == SEV_BTN_L ? SL_POKE_L : SL_POKE_R, now, "音量 %d%%", c.volume);
+            react(b, a, ev.kind == SEV_BTN_L ? SL_POKE_L : SL_POKE_R, now, SL_TR("音量 %d%%", "Volume %d%%"), c.volume);
             buzz(HAPTIC_TICK);
             sfx(a, SFX_HELLO); /* at the new level (the settings apply before it plays) */
             b->last_activity = now;
@@ -646,14 +646,14 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
         case SEV_CLAP:
             if (a->state != SL_LEVELUP) {
                 const bool was_asleep = a->state == SL_SLEEP;
-                react(b, a, (b->lv & 1) ? SL_POKE_L : SL_POKE_R, now, was_asleep ? "啊！谁在拍手？" : "啊！吓我一跳！");
+                react(b, a, (b->lv & 1) ? SL_POKE_L : SL_POKE_R, now, was_asleep ? SL_TR("啊！谁在拍手？", "Huh! Who's clapping?") : SL_TR("啊！吓我一跳！", "Eek! You startled me!"));
                 audio_play(SFX_STARTLE);
             }
             b->last_activity = now;
             break;
         case SEV_DOUBLE_CLAP:
             if (a->state != SL_LEVELUP) {
-                react(b, a, SL_GREET, now, "啪啪！我在呢！");
+                react(b, a, SL_GREET, now, SL_TR("啪啪！我在呢！", "Clap clap! I'm here!"));
                 audio_play(SFX_GREET);
             }
             b->last_activity = now;
@@ -661,34 +661,36 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
         case SEV_WAVE_L:
         case SEV_WAVE_R:
             if (a->state != SL_LEVELUP && a->state != SL_SLEEP) {
-                react(b, a, ev.kind == SEV_WAVE_L ? SL_POKE_L : SL_POKE_R, now, "看到你在挥手！");
+                react(b, a, ev.kind == SEV_WAVE_L ? SL_POKE_L : SL_POKE_R, now, SL_TR("看到你在挥手！", "I see you waving!"));
                 sfx(a, SFX_POKE);
             }
             b->last_activity = now;
             break;
         case SEV_NOD:
             if (a->state != SL_LEVELUP && a->state != SL_SLEEP) {
-                static const char *const YES[] = {"嗯嗯！", "你也这么觉得吧？", "好耶！说定了！"};
-                react(b, a, SL_GREET, now, "%s", YES[(int)(now * 7) % 3]);
+                static const char *const YES[SL_LANG_COUNT][3] = {{"嗯嗯！", "你也这么觉得吧？", "好耶！说定了！"},
+                                                         {"Mm-hm!", "You think so too?", "Yay! It's a deal!"}};
+                react(b, a, SL_GREET, now, "%s", YES[sl_lang][(int)(now * 7) % 3]);
                 sfx(a, SFX_HELLO);
             }
             b->last_activity = now;
             break;
         case SEV_HEAD_SHAKE:
             if (a->state != SL_LEVELUP && a->state != SL_SLEEP) {
-                static const char *const NO[] = {"不要嘛……", "呜，不行吗……", "史莱姆有点委屈……"};
-                react(b, a, SL_SULK, now, "%s", NO[(int)(now * 7) % 3]);
+                static const char *const NO[SL_LANG_COUNT][3] = {{"不要嘛……", "呜，不行吗……", "史莱姆有点委屈……"},
+                                                        {"Aww, no...", "Sniff, really not?", "The slime feels a bit hurt..."}};
+                react(b, a, SL_SULK, now, "%s", NO[sl_lang][(int)(now * 7) % 3]);
                 sfx(a, SFX_SULK);
             }
             b->last_activity = now;
             break;
         case SEV_COVER:
-            if (a->state != SL_LEVELUP && a->state != SL_SLEEP) react(b, a, SL_POKE_L, now, "咦？天怎么黑了？");
+            if (a->state != SL_LEVELUP && a->state != SL_SLEEP) react(b, a, SL_POKE_L, now, SL_TR("咦？天怎么黑了？", "Huh? Who turned off the lights?"));
             b->last_activity = now;
             break;
         case SEV_UNCOVER:
             if (a->state != SL_LEVELUP && a->state != SL_SLEEP) {
-                react(b, a, SL_GREET, now, "躲猫猫！看到你啦！");
+                react(b, a, SL_GREET, now, SL_TR("躲猫猫！看到你啦！", "Peekaboo! I see you!"));
                 sfx(a, SFX_GREET);
             }
             b->last_activity = now;
@@ -772,11 +774,11 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
     json_esc(e1, sizeof e1, msg);
     json_esc(e2, sizeof e2, cc_detail);
     int n = snprintf(js, sizeof js,
-                     "{\"state\":\"%s\",\"msg\":\"%s\",\"lv\":%d,\"exp\":%d,\"need\":%d,\"hp\":%.1f,\"up\":%.0f,"
+                     "{\"state\":\"%s\",\"msg\":\"%s\",\"lang\":%d,\"lv\":%d,\"exp\":%d,\"need\":%d,\"hp\":%.1f,\"up\":%.0f,"
                      "\"perf\":{\"fps\":%.1f,\"render\":%.1f},"
                      "\"bat\":{\"ok\":%s,\"soc\":%d,\"chg\":%s,\"mv\":%d,\"ma\":%d},"
                      "\"cc\":{\"status\":\"%s\",\"busy\":%d,\"detail\":\"%s\",\"ok\":%u,\"stale\":%u,\"sessions\":[",
-                     sl_state_name(a->state), e1, b->lv, b->exp, exp_need(b->lv), a->hp, now, perf.fps, perf.render_ms,
+                     sl_state_name(a->state), e1, (int)sl_lang, b->lv, b->exp, exp_need(b->lv), a->hp, now, perf.fps, perf.render_ms,
                      b->bat_valid ? "true" : "false", b->soc, b->charging ? "true" : "false", b->bat_mv, b->bat_ma, CCN[cs],
                      cc_busy, e2,
                      (unsigned)b->cc.lines_ok, (unsigned)b->cc.lines_stale);
@@ -821,11 +823,11 @@ static void watch_net(brain_t *b, double now)
     net_status_t ns;
     net_get(&ns);
     if (ns.state == NET_CONNECTED && prev != NET_CONNECTED) {
-        snprintf(b->notice, sizeof b->notice, "已连上 Wi-Fi！\nhttp://slime.local  (%s)", ns.ip);
+        snprintf(b->notice, sizeof b->notice, SL_TR("已连上 Wi-Fi！\nhttp://slime.local  (%s)", "Wi-Fi connected!\nhttp://slime.local  (%s)"), ns.ip);
         b->notice_until = now + 12;
         warned = false;
     } else if (ns.state == NET_CONNECTING && ns.fails >= 4 && !warned) {
-        snprintf(b->notice, sizeof b->notice, "Wi-Fi 连不上……\n%s (reason %d)", ns.ssid, ns.last_reason);
+        snprintf(b->notice, sizeof b->notice, SL_TR("Wi-Fi 连不上……\n%s (reason %d)", "Can't connect to Wi-Fi...\n%s (reason %d)"), ns.ssid, ns.last_reason);
         b->notice_until = now + 12;
         warned = true;
     }
@@ -839,7 +841,7 @@ static void focus_start(brain_t *b, sl_anim_t *a, double now)
 {
     b->focus_end = now + b->cfg.focus_min * 60.0;
     b->break_end = 0;
-    react(b, a, SL_GREET, now, "开始专注 %d 分钟！\n我会安静陪着你。", b->cfg.focus_min);
+    react(b, a, SL_GREET, now, SL_TR("开始专注 %d 分钟！\n我会安静陪着你。", "Focus for %d minutes!\nI'll keep you quiet company."), b->cfg.focus_min);
     sfx(a, SFX_WAKE);
 }
 
@@ -847,7 +849,7 @@ static void focus_stop(brain_t *b, sl_anim_t *a, double now)
 {
     if (!b->focus_end && !b->break_end) return;
     b->focus_end = b->break_end = 0;
-    react(b, a, SL_POKE_R, now, "好的，专注计时结束了。");
+    react(b, a, SL_POKE_R, now, SL_TR("好的，专注计时结束了。", "OK, the focus timer is off."));
 }
 
 static void focus_tick(brain_t *b, sl_anim_t *a, double now)
@@ -856,12 +858,12 @@ static void focus_tick(brain_t *b, sl_anim_t *a, double now)
     if (b->focus_end && now >= b->focus_end) {
         b->focus_end = 0;
         b->break_end = now + BREAK_S;
-        react(b, a, SL_GREET, now, "专注 %d 分钟完成，真棒！\n起来休息 5 分钟吧～", b->cfg.focus_min);
+        react(b, a, SL_GREET, now, SL_TR("专注 %d 分钟完成，真棒！\n起来休息 5 分钟吧～", "%d minutes of focus, great job!\nGet up and take a 5-minute break~"), b->cfg.focus_min);
         audio_play(SFX_DONE);
         buzz(HAPTIC_NUDGE);
     } else if (b->break_end && now >= b->break_end) {
         b->break_end = 0;
-        react(b, a, SL_GREET, now, "休息结束，继续加油！");
+        react(b, a, SL_GREET, now, SL_TR("休息结束，继续加油！", "Break's over, let's keep going!"));
         audio_play(SFX_WAKE);
         buzz(HAPTIC_TICK);
     }
@@ -876,35 +878,35 @@ typedef struct {
     uint8_t act;
     bool cam;   /* needs the camera; skipped without it */
     float min_s;
-    const char *msg;
+    const char *msg, *msg_en;
 } demo_step_t;
 
 static const demo_step_t DEMO[] = {
-    {SL_GREET, SFX_BOOT, DA_NONE, false, 4, "大家好！我是住在你桌上的史莱姆。"},
-    {SL_POKE_L, SFX_POKE, DA_NONE, false, 3, "戳我一下，我会软软地弹一下～"},
-    {SL_POKE_R, SFX_POKE, DA_NONE, false, 3, "换一边戳也可以！"},
-    {SL_THINK, -1, DA_NONE, false, 4, "我和 Claude Code 连在一起。\nClaude 在思考，我也在思考……"},
-    {SL_WORK, -1, DA_NONE, false, 4, "Claude 动手干活时，\n我会显示它正在做什么。"},
-    {SL_WAIT, SFX_ASK, DA_NUDGE, false, 4, "Claude 需要你批准时，\n我会叫你、闪灯、还会震动。"},
-    {SL_LEVELUP, SFX_LEVELUP, DA_NONE, false, 4, "完成任务攒经验，还能升级！"},
-    {SL_HURT, SFX_HURT, DA_NONE, false, 3.5f, "命令出错时，我会受到伤害……"},
-    {SL_DIZZY, SFX_DIZZY, DA_NONE, false, 4, "使劲摇晃我，就会晕头转向～"},
-    {SL_IDLE, -1, DA_TILT, false, 6, "把设备歪过来，我会顺着滑过去！"},
-    {SL_IDLE, -1, DA_DANCE, false, 9, "空闲时我会哼歌，\n还会跟着节拍摇摆。"},
-    {SL_IDLE, -1, DA_LOOK, true, 6, "装上摄像头，我的眼睛会跟着你转。\n右上角的小窗是我看到的画面。"},
-    {SL_IDLE, -1, DA_SWAY, true, 5, "你歪头，我也跟着歪～"},
-    {SL_GREET, SFX_SHY, DA_NONE, true, 3.5f, "一直盯着我看，我会害羞的！"},
-    {SL_GREET, SFX_HELLO, DA_NONE, true, 3.5f, "冲我点点头，我会很开心！"},
-    {SL_SULK, SFX_SULK, DA_NONE, true, 3.5f, "冲我摇摇头……我会有点委屈。"},
-    {SL_GREET, SFX_GREET, DA_NONE, true, 3.5f, "盖住镜头再拿开，就是躲猫猫！"},
-    {SL_GREET, SFX_GREET, DA_NONE, false, 3.5f, "拍两下手，我会回应你。"},
-    {SL_CHARGE, -1, DA_NONE, false, 3.5f, "插上电，我会大口大口地吃电。"},
-    {SL_MELT, -1, DA_NONE, false, 4, "电快用完时，我会慢慢化掉……"},
-    {SL_METAL, SFX_HELLO, DA_NONE, false, 3.5f, "偶尔还会变成金属的！"},
-    {SL_SLEEP, SFX_SLEEP, DA_NONE, false, 4, "没人陪我玩，我就去睡觉。\n夜里还会自动静音。"},
-    {SL_GREET, SFX_WAKE, DA_NONE, false, 3.5f, "你一回来，我就醒了！"},
-    {SL_IDLE, -1, DA_NONE, false, 5, "长按屏幕打开设置，\n用手机访问 slime.local 有完整面板。"},
-    {SL_GREET, SFX_DONE, DA_NONE, false, 4, "谢谢观看！"},
+    {SL_GREET, SFX_BOOT, DA_NONE, false, 4, "大家好！我是住在你桌上的史莱姆。", "Hi! I'm the slime on your desk."},
+    {SL_POKE_L, SFX_POKE, DA_NONE, false, 3, "戳我一下，我会软软地弹一下～", "Poke me and I bounce, all squishy~"},
+    {SL_POKE_R, SFX_POKE, DA_NONE, false, 3, "换一边戳也可以！", "The other side works too!"},
+    {SL_THINK, -1, DA_NONE, false, 4, "我和 Claude Code 连在一起。\nClaude 在思考，我也在思考……", "I'm linked to Claude Code.\nWhen Claude thinks, I think too..."},
+    {SL_WORK, -1, DA_NONE, false, 4, "Claude 动手干活时，\n我会显示它正在做什么。", "When Claude gets to work,\nI show what it is doing."},
+    {SL_WAIT, SFX_ASK, DA_NUDGE, false, 4, "Claude 需要你批准时，\n我会叫你、闪灯、还会震动。", "When Claude needs your approval,\nI call you, flash and vibrate."},
+    {SL_LEVELUP, SFX_LEVELUP, DA_NONE, false, 4, "完成任务攒经验，还能升级！", "Finish tasks, earn EXP, level up!"},
+    {SL_HURT, SFX_HURT, DA_NONE, false, 3.5f, "命令出错时，我会受到伤害……", "When a command fails, I get hurt..."},
+    {SL_DIZZY, SFX_DIZZY, DA_NONE, false, 4, "使劲摇晃我，就会晕头转向～", "Shake me hard and I get dizzy~"},
+    {SL_IDLE, -1, DA_TILT, false, 6, "把设备歪过来，我会顺着滑过去！", "Tip the device and I slide along!"},
+    {SL_IDLE, -1, DA_DANCE, false, 9, "空闲时我会哼歌，\n还会跟着节拍摇摆。", "When idle I hum a tune\nand sway to the beat."},
+    {SL_IDLE, -1, DA_LOOK, true, 6, "装上摄像头，我的眼睛会跟着你转。\n右上角的小窗是我看到的画面。", "With a camera my eyes follow you.\nThe corner window shows what I see."},
+    {SL_IDLE, -1, DA_SWAY, true, 5, "你歪头，我也跟着歪～", "Tilt your head and I tilt too~"},
+    {SL_GREET, SFX_SHY, DA_NONE, true, 3.5f, "一直盯着我看，我会害羞的！", "Stare at me and I get shy!"},
+    {SL_GREET, SFX_HELLO, DA_NONE, true, 3.5f, "冲我点点头，我会很开心！", "Nod at me and I'm happy!"},
+    {SL_SULK, SFX_SULK, DA_NONE, true, 3.5f, "冲我摇摇头……我会有点委屈。", "Shake your head... and I sulk a bit."},
+    {SL_GREET, SFX_GREET, DA_NONE, true, 3.5f, "盖住镜头再拿开，就是躲猫猫！", "Cover the lens, then peekaboo!"},
+    {SL_GREET, SFX_GREET, DA_NONE, false, 3.5f, "拍两下手，我会回应你。", "Clap twice and I answer you."},
+    {SL_CHARGE, -1, DA_NONE, false, 3.5f, "插上电，我会大口大口地吃电。", "Plug me in and I gulp down power."},
+    {SL_MELT, -1, DA_NONE, false, 4, "电快用完时，我会慢慢化掉……", "When the battery runs low, I melt..."},
+    {SL_METAL, SFX_HELLO, DA_NONE, false, 3.5f, "偶尔还会变成金属的！", "Sometimes I even turn to metal!"},
+    {SL_SLEEP, SFX_SLEEP, DA_NONE, false, 4, "没人陪我玩，我就去睡觉。\n夜里还会自动静音。", "With no one to play with, I sleep.\nAt night I go quiet by myself."},
+    {SL_GREET, SFX_WAKE, DA_NONE, false, 3.5f, "你一回来，我就醒了！", "When you come back, I wake up!"},
+    {SL_IDLE, -1, DA_NONE, false, 5, "长按屏幕打开设置，\n用手机访问 slime.local 有完整面板。", "Hold the screen for settings.\nOpen slime.local on your phone for more."},
+    {SL_GREET, SFX_DONE, DA_NONE, false, 4, "谢谢观看！", "Thanks for watching!"},
 };
 #define DEMO_N ((int)(sizeof DEMO / sizeof DEMO[0]))
 #define DEMO_COUNTDOWN_S 3
@@ -941,7 +943,7 @@ static void demo_stop(brain_t *b, sl_anim_t *a, double now)
 
 static float demo_len(const demo_step_t *d) /* long enough for the caption to finish typing and be read */
 {
-    const float type_s = (float)sl_text_count(d->msg) / TYPE_CPS + 1.8f;
+    const float type_s = (float)sl_text_count(SL_TR(d->msg, d->msg_en)) / TYPE_CPS + 1.8f;
     return type_s > d->min_s ? type_s : d->min_s;
 }
 
@@ -954,7 +956,7 @@ static void demo_begin_step(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
     }
     const demo_step_t *d = &DEMO[b->demo_i];
     b->demo_t0 = now;
-    snprintf(b->demo_msg, sizeof b->demo_msg, "%s", d->msg);
+    snprintf(b->demo_msg, sizeof b->demo_msg, "%s", SL_TR(d->msg, d->msg_en));
     sl_anim_set_state(a, d->st, now);
     if (d->sfx >= 0) audio_play((sfx_t)d->sfx);
     if (d->act == DA_NUDGE) buzz(HAPTIC_NUDGE);
@@ -969,7 +971,7 @@ static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
     if (b->demo_i < 0) { /* 3, 2, 1: time to step back and hit record */
         const int left = DEMO_COUNTDOWN_S - (int)t;
         if (left > 0) {
-            snprintf(b->demo_msg, sizeof b->demo_msg, "功能演示马上开始…… %d", left);
+            snprintf(b->demo_msg, sizeof b->demo_msg, SL_TR("功能演示马上开始…… %d", "The demo starts in... %d"), left);
             return true;
         }
         b->demo_i = 0;
@@ -1002,31 +1004,33 @@ static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
 
 static void draw_help(sg_canvas_t *cv)
 {
-    static const char *const LINES[][2] = {
-        {"点一下", "戳它，它会弹一下"},
-        {"长按 1 秒", "打开设置"},
-        {"拍两下手", "它会回应你"},
-        {"倾斜 / 摇晃", "它会滑动 / 晕头转向"},
-        {"扣过来放", "让它睡觉"},
-        {"盖住镜头", "躲猫猫"},
-        {"点头 / 摇头", "开心 / 委屈"},
-        {"歪头", "它跟着你歪"},
-        {"盯着它看", "它会害羞"},
-        {"点右上角小窗", "看摄像头全屏画面"},
-        {"AI 键", "单击静音，长按看说明"},
-        {"BOOT 键", "单击专注计时，长按设置"},
-        {"模块左右键", "音量减 / 加"},
-        {"手机浏览器", "slime.local 完整面板"},
+    static const char *const LINES[][2][2] = {
+        {{"点一下", "戳它，它会弹一下"}, {"Tap", "Poke it, it bounces"}},
+        {{"长按 1 秒", "打开设置"}, {"Hold 1 s", "Open settings"}},
+        {{"拍两下手", "它会回应你"}, {"Clap twice", "It answers you"}},
+        {{"倾斜 / 摇晃", "它会滑动 / 晕头转向"}, {"Tilt / shake", "It slides / gets dizzy"}},
+        {{"扣过来放", "让它睡觉"}, {"Lay face down", "Put it to sleep"}},
+        {{"盖住镜头", "躲猫猫"}, {"Cover the lens", "Peekaboo"}},
+        {{"点头 / 摇头", "开心 / 委屈"}, {"Nod / shake head", "Happy / sulky"}},
+        {{"歪头", "它跟着你歪"}, {"Tilt your head", "It tilts with you"}},
+        {{"盯着它看", "它会害羞"}, {"Stare at it", "It gets shy"}},
+        {{"点右上角小窗", "看摄像头全屏画面"}, {"Tap thumbnail", "Full-screen camera view"}},
+        {{"AI 键", "单击静音，长按看说明"}, {"AI key", "Click: mute; hold: this page"}},
+        {{"BOOT 键", "单击专注计时，长按设置"}, {"BOOT key", "Click: focus timer; hold: settings"}},
+        {{"模块左右键", "音量减 / 加"}, {"Module L/R keys", "Volume down / up"}},
+        {{"手机浏览器", "slime.local 完整面板"}, {"Phone browser", "slime.local full panel"}},
     };
     const sg_rgb_t gold = sg_hex(0xffd84a), white = {1, 1, 1}, dim = sg_hex(0x8d97ad);
     sg_fill_rect(cv, 0, 0, SCR, SCR, 0);
-    sl_text_draw(cv, "玩法说明", 190, 40, SL_FONT_22, gold, -1);
+    const char *title = SL_TR("玩法说明", "How to play"), *back = SL_TR("点屏幕返回", "Tap to go back");
+    sl_text_draw(cv, title, (SCR - sl_text_width(title, SL_FONT_22)) / 2, 40, SL_FONT_22, gold, -1);
     for (int i = 0; i < (int)(sizeof LINES / sizeof LINES[0]); i++) {
         const float y = 76 + i * 27;
-        sl_text_draw(cv, LINES[i][0], 40, y, SL_FONT_18, gold, -1);
-        sl_text_draw(cv, LINES[i][1], 190, y, SL_FONT_18, white, -1);
+        const char *const *l = LINES[i][sl_lang == SL_LANG_EN];
+        sl_text_draw(cv, l[0], 40, y, SL_FONT_18, gold, -1);
+        sl_text_draw(cv, l[1], 190, y, SL_FONT_18, white, -1);
     }
-    sl_text_draw(cv, "点屏幕返回", 195, 462, SL_FONT_14, dim, -1);
+    sl_text_draw(cv, back, (SCR - sl_text_width(back, SL_FONT_14)) / 2, 462, SL_FONT_14, dim, -1);
 }
 
 /* Background tune: now and then, while idle and someone is around. */
@@ -1100,8 +1104,9 @@ static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
     }
     if (b->front_since && now - b->front_since > 1.2 && b->nonfront_since && b->front_since - b->nonfront_since > 4 &&
         now > b->contact_cool && calm_state(st) && st != SL_SLEEP) {
-        static const char *const SHY[] = {"被你盯得害羞了～", "你在看我吗？嘿嘿", "四目相对！"};
-        react(b, a, SL_GREET, now, "%s", SHY[(int)(now * 7) % 3]);
+        static const char *const SHY[SL_LANG_COUNT][3] = {{"被你盯得害羞了～", "你在看我吗？嘿嘿", "四目相对！"},
+                                                         {"You're making me blush~", "Are you looking at me? Hehe", "Eye contact!"}};
+        react(b, a, SL_GREET, now, "%s", SHY[sl_lang][(int)(now * 7) % 3]);
         sfx(a, SFX_SHY);
         b->contact_cool = now + 45;
         b->nonfront_since = 0; /* needs another look-away before the next one */
@@ -1110,7 +1115,7 @@ static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
     if (seen && vs.fsize > 0.9f) { /* at desk distance a face already spans ~70% of the frame */
         if (!b->close_since) b->close_since = now;
         if (now - b->close_since > 1.5 && now > b->close_cool && calm_state(st)) {
-            react(b, a, SL_POKE_R, now, "太近啦，看不清你了！");
+            react(b, a, SL_POKE_R, now, SL_TR("太近啦，看不清你了！", "Too close, I can't see you!"));
             sfx(a, SFX_STARTLE);
             b->close_cool = now + 20;
         }
@@ -1120,7 +1125,7 @@ static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
 
     if (b->cfg.sit_min && !b->focus_end && b->face_since && now - b->face_since > b->cfg.sit_min * 60.0 && now - b->last_sit_nag > 600 &&
         calm_state(st) && st != SL_SLEEP) {
-        react(b, a, SL_GREET, now, "坐了 %d 分钟啦，起来活动一下吧！", (int)((now - b->face_since) / 60));
+        react(b, a, SL_GREET, now, SL_TR("坐了 %d 分钟啦，起来活动一下吧！", "%d min sitting! Time to stretch!"), (int)((now - b->face_since) / 60));
         buzz(HAPTIC_TICK);
         sfx(a, SFX_WAKE); /* not SFX_ASK: that one means Claude needs you */
         b->last_sit_nag = now;
@@ -1164,13 +1169,13 @@ static bool draw_camview(sg_canvas_t *cv, uint16_t *fb, uint32_t *seq)
     if (bar > 0) sg_fill_rect(cv, x0, h - 12, x0 + bar, h - 2, vs.motion >= 0.08f ? 0x07e0 : 0x8410);
     char buf[64];
     if (vs.face && vs.kp_ok)
-        snprintf(buf, sizeof buf, "歪%+d° 转%+.2f 点%.2f", (int)(vs.roll * 57.3f), vs.yaw, vs.pitch);
+        snprintf(buf, sizeof buf, SL_TR("歪%+d° 转%+.2f 点%.2f", "roll %+d° yaw %+.2f nod %.2f"), (int)(vs.roll * 57.3f), vs.yaw, vs.pitch);
     else
-        snprintf(buf, sizeof buf, "%s  运动 %d%%", vs.face ? "看到人脸" : "没看到人脸", (int)(vs.motion * 100));
+        snprintf(buf, sizeof buf, SL_TR("%s  运动 %d%%", "%s  motion %d%%"), vs.face ? SL_TR("看到人脸", "Face found") : SL_TR("没看到人脸", "No face"), (int)(vs.motion * 100));
     sg_fill_rect(cv, x0, 0, x0 + w, 34, 0);
     sl_text_draw(cv, buf, x0 + 8, 24, SL_FONT_18, vs.face ? green : white, -1);
-    if (vs.luma < 40) sl_text_draw(cv, "镜头被遮住了", x0 + 70, 240, SL_FONT_22, amber, -1);
-    sl_text_draw(cv, "点屏幕退出", x0 + 90, h - 22, SL_FONT_14, white, -1);
+    if (vs.luma < 40) sl_text_draw(cv, SL_TR("镜头被遮住了", "Lens covered"), x0 + 70, 240, SL_FONT_22, amber, -1);
+    sl_text_draw(cv, SL_TR("点屏幕退出", "Tap to exit"), x0 + 90, h - 22, SL_FONT_14, white, -1);
     return true;
 }
 
@@ -1337,6 +1342,7 @@ void app_main(void)
     ota_init();
     bootlog_init();
     cfg_get(&s_b.cfg);
+    sl_lang = (sl_lang_t)s_b.cfg.lang;
     char init_err[48];
     init_inputs(init_err, sizeof init_err);
     bsp_board_variant_t variant;
@@ -1416,7 +1422,7 @@ void app_main(void)
             cfg_get(&c);
             c.sound = !c.sound;
             cfg_set(&c);
-            react(&s_b, &a, SL_POKE_R, now, c.sound ? "声音打开了！" : "嘘……已经静音了。");
+            react(&s_b, &a, SL_POKE_R, now, c.sound ? SL_TR("声音打开了！", "Sound is on!") : SL_TR("嘘……已经静音了。", "Shh... Muted."));
             buzz(HAPTIC_TICK);
             if (c.sound) audio_play(SFX_HELLO);
         } else if (ev == EV_AI_LONG) {
@@ -1478,7 +1484,7 @@ void app_main(void)
                     snprintf(wifi, sizeof wifi, "%s  %d dBm", ns.ssid, ns.rssi);
                     snprintf(addr, sizeof addr, "%s  %s", ns.ssid, ns.ip);
                 } else {
-                    snprintf(wifi, sizeof wifi, "%s", ns.state == NET_NO_CONFIG ? "未设置" : "未连接");
+                    snprintf(wifi, sizeof wifi, "%s", ns.state == NET_NO_CONFIG ? SL_TR("未设置", "Not set") : SL_TR("未连接", "Not connected"));
                     snprintf(addr, sizeof addr, "-");
                 }
                 sui_open(wifi, addr, s_b.lv, s_b.exp, exp_need(s_b.lv), now);
@@ -1508,7 +1514,7 @@ void app_main(void)
         const sl_state_t want = want_base(&s_b, cs, now);
         if (!in_demo && sl_state_duration(a.state) == 0 && now >= s_b.manual_until && a.state != want) {
             if (a.state == SL_SLEEP && want == SL_IDLE) {
-                react(&s_b, &a, SL_GREET, now, "史莱姆醒过来了！");
+                react(&s_b, &a, SL_GREET, now, SL_TR("史莱姆醒过来了！", "The slime woke up!"));
                 sfx(&a, SFX_WAKE);
             } else {
                 if (want == SL_SLEEP) sfx(&a, SFX_SLEEP);
@@ -1520,6 +1526,10 @@ void app_main(void)
         if (cfg_gen() != cfg_seen) {
             cfg_seen = cfg_gen();
             cfg_get(&s_b.cfg);
+            if (sl_lang != (sl_lang_t)s_b.cfg.lang) {
+                sl_lang = (sl_lang_t)s_b.cfg.lang;
+                hud_lv = -1; /* the HUD's name changes too */
+            }
             haptic_set_enabled(s_b.cfg.motor);
             sensors_set_led_brightness(s_b.cfg.led_bright);
             audio_configure(s_b.cfg.mic, s_b.cfg.clap_sens, s_b.cfg.dance, s_b.cfg.sound, s_b.cfg.volume);

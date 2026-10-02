@@ -68,22 +68,25 @@ void sl_menu_render(sg_canvas_t *cv, const sl_menu_t *m, const char *title)
             const float kx = on ? TOGGLE_X0 + TOGGLE_W - (ROW_H - 18) / 2.0f : TOGGLE_X0 + (ROW_H - 18) / 2.0f;
             sg_paint_t knob = sg_solid(WH_);
             sg_fill_ellipse(cv, kx, y + ROW_H / 2.0f, 13, 13, &knob, 1);
-            const char *t = on ? "开" : "关";
-            sl_text_draw(cv, t, on ? TOGGLE_X0 + 14 : TOGGLE_X0 + TOGGLE_W - 34, y + 34, SL_FONT_18, WH_, -1);
+            const char *t = on ? SL_TR("开", "ON") : SL_TR("关", "OFF");
+            sl_text_draw(cv, t, on ? TOGGLE_X0 + 14 : TOGGLE_X0 + TOGGLE_W - 16 - sl_text_width(t, SL_FONT_18), y + 34, SL_FONT_18, WH_, -1);
             break;
         }
         case SL_MI_INFO:
             sl_text_draw(cv, it->text, 444 - sl_text_width(it->text, SL_FONT_18), y + 33, SL_FONT_18, sg_hex(0xa9c9ff), -1);
             break;
+        case SL_MI_CHOICE:
+            button(cv, TOGGLE_X0, y + 7, TOGGLE_W, ROW_H - 14, it->opts[it->value - it->min], true);
+            break;
         case SL_MI_ACTION:
-            button(cv, TOGGLE_X0, y + 7, TOGGLE_W, ROW_H - 14, "打开", true);
+            button(cv, TOGGLE_X0, y + 7, TOGGLE_W, ROW_H - 14, SL_TR("打开", "Open"), true);
             break;
         }
     }
     const int pages = sl_menu_pages(m);
-    button(cv, 36, BAR_Y0, 126, BAR_Y1 - BAR_Y0, "上一页", m->page > 0);
-    button(cv, 177, BAR_Y0, 126, BAR_Y1 - BAR_Y0, "返回", true);
-    button(cv, 318, BAR_Y0, 126, BAR_Y1 - BAR_Y0, "下一页", m->page < pages - 1);
+    button(cv, 36, BAR_Y0, 126, BAR_Y1 - BAR_Y0, SL_TR("上一页", "Prev"), m->page > 0);
+    button(cv, 177, BAR_Y0, 126, BAR_Y1 - BAR_Y0, SL_TR("返回", "Back"), true);
+    button(cv, 318, BAR_Y0, 126, BAR_Y1 - BAR_Y0, SL_TR("下一页", "Next"), m->page < pages - 1);
 }
 
 sl_menu_action_t sl_menu_tap(sl_menu_t *m, int x, int y, int *changed)
@@ -107,6 +110,8 @@ sl_menu_action_t sl_menu_tap(sl_menu_t *m, int x, int y, int *changed)
     int v = it->value;
     if (it->kind == SL_MI_BOOL) {
         v = !v; /* anywhere on the row */
+    } else if (it->kind == SL_MI_CHOICE) {
+        v = v < it->max ? v + 1 : it->min; /* anywhere on the row: the next option */
     } else if (it->kind == SL_MI_NUM) {
         if (x >= MINUS_X0 - 10 && x < VALUE_X0) v -= it->step;
         else if (x >= PLUS_X0 - 6) v += it->step;

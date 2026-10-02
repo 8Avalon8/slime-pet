@@ -10,7 +10,7 @@
 
 static const char *TAG = "cfg";
 
-#define CFG_VERSION 6 /* v1 = everything up to show_fps; later fields are appended */
+#define CFG_VERSION 7 /* v1 = everything up to show_fps; later fields are appended */
 
 typedef struct {
     uint8_t version;
@@ -39,6 +39,7 @@ static const slime_cfg_t DEFAULTS = {
     .night_end = 7,
     .focus_min = 25,
     .ai_comment = true,
+    .lang = 0,
 };
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -58,6 +59,7 @@ static void sanitize(slime_cfg_t *c)
     c->night_start = clamp8(c->night_start, 0, 23);
     c->night_end = clamp8(c->night_end, 0, 23);
     c->focus_min = clamp8(c->focus_min, 5, 90);
+    c->lang = clamp8(c->lang, 0, 1);
 }
 
 esp_err_t cfg_init(void)

@@ -49,7 +49,9 @@ input[type=text],input[type=password]{font:inherit;color:var(--line);background:
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#000;border:3px solid var(--line);border-radius:10px;padding:8px 18px;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.show{opacity:1}
 .span2{grid-column:1/-1}
-@media (max-width:520px){main{padding:12px}.toggles{grid-template-columns:1fr}.row label{flex-basis:6.5em}}
+html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.5em}
+#langBtn{padding:2px 10px;font-size:13px}
+@media (max-width:520px){main{padding:12px}.toggles{grid-template-columns:1fr}.row label{flex-basis:6.5em}html[lang=en] .row label{flex-basis:8.5em}}
 </style>
 </head>
 <body>
@@ -62,6 +64,7 @@ input[type=text],input[type=password]{font:inherit;color:var(--line);background:
   </div>
   <span class="chip" id="state">-</span>
   <span class="online" id="online"><b></b><span>连接中…</span></span>
+  <button id="langBtn" type="button" title="语言 / Language">EN</button>
 </header>
 
 <div class="grid">
@@ -194,70 +197,124 @@ input[type=text],input[type=password]{font:inherit;color:var(--line);background:
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
+/* Language: follows the device setting (lang 0 = Chinese, 1 = English); the button switches both. */
+let LANG=0;
+try{LANG=+localStorage.getItem('lang')||0}catch(e){}
+const T=(zh,en)=>LANG?en:zh;
+/* Static page text, keyed by the Chinese in the markup */
+const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…':'Connecting…','在线':'Online','离线':'Offline','史莱姆在说':'THE SLIME SAYS',
+  '总体':'Overall','正在做':'Doing','收到事件':'Events','会话':'Session','状态':'State','工具':'Tool','最近':'Last seen',
+  '传感器':'SENSORS','倾斜':'Tilt','加速度':'Accel','交互模块':'Interaction module','人体感应':'Motion sensor','摄像头':'Camera',
+  '看摄像头画面':'Show camera picture','关闭画面':'Hide picture','光线':'Light','声音':'Sound',
+  '系统':'SYSTEM','帧率':'Frame rate','电池':'Battery','内存':'Memory','运行':'Uptime','最近重启':'Recent boots',
+  '设置（改动即保存）':'SETTINGS (SAVED AS YOU CHANGE THEM)','屏幕亮度':'Screen brightness','睡觉时亮度':'Asleep brightness','彩灯亮度':'LED brightness',
+  '自动睡眠':'Auto sleep','音量':'Volume','拍手灵敏度':'Clap sensitivity','久坐提醒':'Sitting reminder','专注时长':'Focus length',
+  '勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
+  '空闲呼吸灯':'Breathing LEDs when idle','震动':'Vibration','麦克风':'Microphone','跟着声音晃':'Bob to the sound','倾斜滑动':'Tilt to slide',
+  '屏幕显示帧率':'Show FPS on screen','摄像头小窗常开':'Camera thumbnail always on','AI 点评 Claude 的工作':'AI comments on Claude\'s work',
+  '常用':'QUICK','开始专注':'Start focus','结束专注':'Stop focus','▶ 功能演示（录视频用）':'▶ Feature demo (for videos)','停止演示':'Stop demo',
+  '功能演示约 2 分钟，开始前有 3 秒倒数。演示中长按屏幕可以提前结束。勿扰开始和结束设成同一个钟点就是关闭夜间勿扰。':
+    'The demo takes about 2 minutes, after a 3-second countdown. Hold the screen to end it early. Set quiet hours to start and end at the same hour to turn them off.',
+  '让史莱姆演一下':'ACT IT OUT','手动切换的状态会保持 15 秒，并播放对应的音效（如果开着）。':'A state picked here lasts 15 seconds and plays its sound (if sound is on).',
+  '音乐试听':'MUSIC','设备合成的 8-bit 音效与小曲（乐谱在 main/tunes_original.h，可以换成自己的）。背景音乐会被任何音效打断。':
+    '8-bit sounds and tunes synthesized on the device (scores in main/tunes_original.h; you can swap in your own). Any sound effect interrupts the background tune.',
+  '自制音效（sfxr）':'CUSTOM SOUNDS (SFXR)','▶ 试听':'▶ Play','设为这个场景的音效':'Use for this event','恢复原版':'Restore original',
+  '每点一次生成按钮都会随机出一个新音效并立刻播放。想精调可以去':'Each click on a generator makes a new random sound and plays it. To fine-tune, use',
+  '（jsfxr）调好，再把导出的 JSON 贴进来。替换后的音效存在设备里，重启也在。':' (jsfxr) and paste the exported JSON here. Replaced sounds are stored on the device and survive reboots.',
+  '点上面的按钮随机生成，或者把 jsfxr 网站导出的 JSON 粘贴到这里':'Click a button above to generate one, or paste JSON exported from jsfxr here',
+  '网络名称（仅 2.4 GHz）':'Network name (2.4 GHz only)','密码':'Password','连接':'Connect',
+  '切换网络后本页会断开，到新网络里打开 http://slime.local 。面板没有登录保护，只在局域网内使用。':
+    'This page disconnects when the network changes; open http://slime.local on the new network. The panel has no login: use it only on your own network.'};
+const TITLE_ZH=document.title;
+const UNIT_EN={'分':' min','点':':00'};
+function applyLang(){
+  document.documentElement.lang=LANG?'en':'zh-CN';
+  $('langBtn').textContent=LANG?'中文':'EN';
+  const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:n=>n.parentNode.closest('script,#msg,#toast')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});
+  for(let n;(n=w.nextNode());){
+    if(n.zh===undefined){const k=n.nodeValue.trim();if(!EN_TEXT[k])continue;n.zh=n.nodeValue;n.key=k}
+    n.nodeValue=LANG?n.zh.replace(n.key,EN_TEXT[n.key]):n.zh}
+  document.querySelectorAll('[placeholder]').forEach(el=>{if(el.dataset.zh===undefined)el.dataset.zh=el.placeholder;el.placeholder=LANG?(EN_TEXT[el.dataset.zh]||el.dataset.zh):el.dataset.zh});
+  document.title=LANG?EN_TEXT[TITLE_ZH]:TITLE_ZH;
+  document.querySelectorAll('input[type=range]').forEach(showVal);
+  buildButtons();sfxSlots();
+}
+function setLang(l){l=l?1:0;if(l===LANG)return;LANG=l;try{localStorage.setItem('lang',l)}catch(e){}applyLang()}
 const ZH = {idle:'发呆',greet:'开心',pokeL:'被戳',pokeR:'被戳',dizzy:'头晕',sleep:'睡觉',think:'思考',wait:'等你确认',levelup:'升级',hurt:'受伤',charge:'吃电',melt:'化掉',metal:'金属化',work:'干活'};
+const ST_EN = {idle:'Idle',greet:'Happy',pokeL:'Poked',pokeR:'Poked',dizzy:'Dizzy',sleep:'Asleep',think:'Thinking',wait:'Needs you',levelup:'Level up',hurt:'Hurt',charge:'Charging',melt:'Melting',metal:'Metal',work:'Working',sulk:'Sulking'};
+const stName=s=>(LANG?ST_EN[s]:ZH[s])||s;
 const CC = {idle:'空闲',think:'思考中',work:'干活中',wait:'等你确认'};
+const CC_EN = {idle:'Idle',think:'Thinking',work:'Working',wait:'Needs your OK'};
+const ccName=s=>(LANG?CC_EN[s]:CC[s])||s;
 const DEMO = ['greet','think','work','wait','levelup','hurt','dizzy','sleep','charge','melt','metal','idle'];
 let toastT;
 function toast(s){const t=$('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1400)}
-function fmtUp(s){s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h} 小时 ${m} 分`:`${m} 分 ${s%60} 秒`}
+function fmtUp(s){s=Math.floor(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?T(`${h} 小时 ${m} 分`,`${h} h ${m} min`):T(`${m} 分 ${s%60} 秒`,`${m} min ${s%60} s`)}
 function pct(v,max){return Math.max(0,Math.min(100,v/max*100))+'%'}
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
 function render(s){
+  if(s.lang!==undefined)setLang(s.lang);
   $('lv').textContent='Lv '+s.lv;
   $('hp').style.width=pct(s.hp,20);$('hpv').textContent=s.hp.toFixed(0)+'/20';
   $('exp').style.width=pct(s.exp,s.need);$('expv').textContent=s.exp+'/'+s.need;
-  $('state').textContent=ZH[s.state]||s.state;
+  $('state').textContent=stName(s.state);
   $('msg').textContent=s.msg;
   const c=s.cc;
-  $('cc').innerHTML=`<span class="st-${c.status}">${CC[c.status]||c.status}</span>`+(c.busy>1?` · ${c.busy} 个会话在忙`:'');
+  $('cc').innerHTML=`<span class="st-${c.status}">${ccName(c.status)}</span>`+(c.busy>1?T(` · ${c.busy} 个会话在忙`,` · ${c.busy} sessions busy`):'');
   $('ccd').textContent=c.detail||'—';
-  $('ccn').textContent=`${c.ok} 条（丢弃过期 ${c.stale}）`;
-  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${CC[x.st]||x.st}</td><td class="d">${esc(x.detail||'—')}</td><td>${x.age<60?x.age.toFixed(0)+' 秒':Math.floor(x.age/60)+' 分'}前</td></tr>`).join(''):'<tr><td colspan="4" style="color:var(--dim)">还没有会话。新开一个 Claude Code 会话试试。</td></tr>';
+  $('ccn').textContent=T(`${c.ok} 条（丢弃过期 ${c.stale}）`,`${c.ok} (${c.stale} stale dropped)`);
+  const ago=a=>a<60?T(a.toFixed(0)+' 秒前',a.toFixed(0)+' s ago'):T(Math.floor(a/60)+' 分前',Math.floor(a/60)+' min ago');
+  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${ccName(x.st)}</td><td class="d">${esc(x.detail||'—')}</td><td>${ago(x.age)}</td></tr>`).join(''):`<tr><td colspan="4" style="color:var(--dim)">${T('还没有会话。新开一个 Claude Code 会话试试。','No sessions yet. Start a Claude Code session to try it.')}</td></tr>`;
   const m=s.imu;
-  if(m.ok){$('tilt').style.left=`calc(${50+Math.max(-45,Math.min(45,m.tilt*90))}% - 9px)`;$('tiltv').textContent=(m.tilt>=0?'+':'')+m.tilt.toFixed(2)+' g'+(m.face?' · 屏幕朝下':'');
-    $('acc').textContent=`${m.ax.toFixed(2)} / ${m.ay.toFixed(2)} / ${m.az.toFixed(2)} g`}else{$('tiltv').textContent='IMU 不可用';$('acc').textContent='—'}
+  if(m.ok){$('tilt').style.left=`calc(${50+Math.max(-45,Math.min(45,m.tilt*90))}% - 9px)`;$('tiltv').textContent=(m.tilt>=0?'+':'')+m.tilt.toFixed(2)+' g'+(m.face?T(' · 屏幕朝下',' · face down'):'');
+    $('acc').textContent=`${m.ax.toFixed(2)} / ${m.ay.toFixed(2)} / ${m.az.toFixed(2)} g`}else{$('tiltv').textContent=T('IMU 不可用','IMU unavailable');$('acc').textContent='—'}
   const d=s.mod;
-  $('mod').textContent=d.ok?'已连接':'未插入';
-  $('pir').textContent=d.ok?(d.motion?'检测到有人':'没人'):'—';
+  $('mod').textContent=d.ok?T('已连接','Connected'):T('未插入','Not plugged in');
+  $('pir').textContent=d.ok?(d.motion?T('检测到有人','Someone is here'):T('没人','Nobody')):'—';
   $('light').style.width=d.ok?d.light+'%':'0';$('lightv').textContent=d.ok?d.light:'—';
   const k=s.cam||{};
-  $('cam').textContent=!k.on?'已关闭':(k.ok?(k.face?`看到 ${k.n} 张脸（推理 ${k.ms} ms，${k.size>0.55?'很近':'位置 '+k.fx.toFixed(1)}）`:`没看到人（推理 ${k.ms} ms）`):(k.err==='ESP_ERR_NOT_FOUND'||k.err==='ESP_ERR_TIMEOUT'?'未插入（插左槽）':`未就绪：${k.err}`));
+  $('cam').textContent=!k.on?T('已关闭','Off'):(k.ok?(k.face?T(`看到 ${k.n} 张脸（推理 ${k.ms} ms，${k.size>0.55?'很近':'位置 '+k.fx.toFixed(1)}）`,`${k.n} face(s) (inference ${k.ms} ms, ${k.size>0.55?'very close':'at '+k.fx.toFixed(1)})`):T(`没看到人（推理 ${k.ms} ms）`,`Nobody in view (inference ${k.ms} ms)`)):(k.err==='ESP_ERR_NOT_FOUND'||k.err==='ESP_ERR_TIMEOUT'?T('未插入（插左槽）','Not plugged in (use the left slot)'):T(`未就绪：${k.err}`,`Not ready: ${k.err}`)));
   const a=s.mic;
-  $('mic').style.width=a.ok?pct(a.db+70,70):'0';$('micv').textContent=a.ok?`${a.db.toFixed(0)} dB（底噪 ${a.floor.toFixed(0)}，拍手 ${a.claps} 次）`:'未启用';
-  $('fps').textContent=`${s.perf.fps.toFixed(1)} fps（渲染 ${s.perf.render.toFixed(1)} ms）`;
-  const b=s.bat;$('bat').textContent=b.ok?`${b.soc}% · ${(b.mv/1000).toFixed(2)} V · ${b.ma} mA`+(b.chg?' · 充电中':''):'—';
+  $('mic').style.width=a.ok?pct(a.db+70,70):'0';$('micv').textContent=a.ok?T(`${a.db.toFixed(0)} dB（底噪 ${a.floor.toFixed(0)}，拍手 ${a.claps} 次）`,`${a.db.toFixed(0)} dB (floor ${a.floor.toFixed(0)}, ${a.claps} claps)`):T('未启用','Off');
+  $('fps').textContent=T(`${s.perf.fps.toFixed(1)} fps（渲染 ${s.perf.render.toFixed(1)} ms）`,`${s.perf.fps.toFixed(1)} fps (render ${s.perf.render.toFixed(1)} ms)`);
+  const b=s.bat;$('bat').textContent=b.ok?`${b.soc}% · ${(b.mv/1000).toFixed(2)} V · ${b.ma} mA`+(b.chg?T(' · 充电中',' · charging'):''):'—';
   const RZ={power_on:'上电',brownout:'欠压',panic:'崩溃',task_wdt:'看门狗',int_wdt:'看门狗',wdt:'看门狗',software:'软件重启',usb:'USB',external:'外部复位',deep_sleep:'睡眠唤醒'};
-  $('boots').innerHTML=(s.boots||[]).slice(0,5).map(x=>(RZ[x.reason]||x.reason)+(x.prev_up!==undefined?`（前次运行 ${fmtUp(x.prev_up)}，${(x.mv/1000).toFixed(2)} V，${x.ma} mA）`:'')).join('<br>')||'—';
+  const RZ_EN={power_on:'Power on',brownout:'Brownout',panic:'Crash',task_wdt:'Watchdog',int_wdt:'Watchdog',wdt:'Watchdog',software:'Software reset',usb:'USB',external:'External reset',deep_sleep:'Wake from sleep'};
+  $('boots').innerHTML=(s.boots||[]).slice(0,5).map(x=>((LANG?RZ_EN:RZ)[x.reason]||x.reason)+(x.prev_up!==undefined?T(`（前次运行 ${fmtUp(x.prev_up)}，${(x.mv/1000).toFixed(2)} V，${x.ma} mA）`,` (ran ${fmtUp(x.prev_up)} before, ${(x.mv/1000).toFixed(2)} V, ${x.ma} mA)`):'')).join('<br>')||'—';
   const n=s.net;$('net').textContent=n.state==='connected'?`${n.ssid} · ${n.ip} · ${n.rssi} dBm`:n.state;
-  $('heap').textContent=`内部 ${s.heap.int} KB · PSRAM ${(s.heap.psram/1024).toFixed(1)} MB 可用`;
+  $('heap').textContent=T(`内部 ${s.heap.int} KB · PSRAM ${(s.heap.psram/1024).toFixed(1)} MB 可用`,`internal ${s.heap.int} KB · PSRAM ${(s.heap.psram/1024).toFixed(1)} MB free`);
   $('up').textContent=fmtUp(s.up);
 }
 let fails=0;
 async function poll(){
-  try{const r=await fetch('/api/status',{cache:'no-store'});render(await r.json());fails=0;$('online').className='online ok';$('online').lastChild.textContent='在线'}
-  catch(e){if(++fails>1){$('online').className='online';$('online').lastChild.textContent='离线'}}
+  try{const r=await fetch('/api/status',{cache:'no-store'});render(await r.json());fails=0;$('online').className='online ok';$('online').lastChild.textContent=T('在线','Online')}
+  catch(e){if(++fails>1){$('online').className='online';$('online').lastChild.textContent=T('离线','Offline')}}
   setTimeout(poll,1000)}
 
-function showVal(el){const o=el.parentElement.querySelector('output');if(o)o.textContent=el.value+(el.dataset.unit||'')}
+function showVal(el){const o=el.parentElement.querySelector('output');const u=el.dataset.unit||'';if(o)o.textContent=el.value+(LANG?UNIT_EN[u]||u:u)}
 async function loadCfg(){
   const c=await (await fetch('/api/config')).json();
+  if(c.lang!==undefined)setLang(c.lang);
   document.querySelectorAll('[data-k]').forEach(el=>{const v=c[el.dataset.k];if(v===undefined)return;if(el.type==='checkbox')el.checked=v;else{el.value=v;showVal(el)}})}
 let pend={},saveT;
 document.querySelectorAll('[data-k]').forEach(el=>{
   el.addEventListener('input',()=>{if(el.type==='range')showVal(el);pend[el.dataset.k]=el.type==='checkbox'?el.checked:Number(el.value);clearTimeout(saveT);saveT=setTimeout(save,300)})});
 async function save(){const body=JSON.stringify(pend);pend={};
-  try{const r=await fetch('/api/config',{method:'POST',body});if(!r.ok)throw 0;toast('已保存')}catch(e){toast('保存失败')}}
+  try{const r=await fetch('/api/config',{method:'POST',body});if(!r.ok)throw 0;toast(T('已保存','Saved'))}catch(e){toast(T('保存失败','Save failed'))}}
+$('langBtn').addEventListener('click',()=>{setLang(1-LANG);pend.lang=LANG;clearTimeout(saveT);save()});
 
-$('states').innerHTML=DEMO.map(s=>`<button data-s="${s}">${ZH[s]}</button>`).join('');
-$('states').addEventListener('click',e=>{const s=e.target.dataset.s;if(!s)return;fetch('/api/cmd',{method:'POST',body:'state '+s}).then(()=>toast(ZH[s]))});
-const MUSIC=[['sfx boot','开机'],['sfx levelup','升级'],['sfx done','完成'],['sfx ask','等你批准'],['sfx greet','打招呼'],
-  ['sfx sleep','睡觉'],['sfx wake','醒来'],['sfx shy','害羞'],['sfx sulk','委屈'],['bgm 0','城镇小曲'],['bgm 1','旅途进行曲'],['bgm stop','停止']];
-$('music').innerHTML=MUSIC.map(([c,n])=>`<button data-c="${c}">${n}</button>`).join('');
+$('states').addEventListener('click',e=>{const s=e.target.dataset.s;if(!s)return;fetch('/api/cmd',{method:'POST',body:'state '+s}).then(()=>toast(stName(s)))});
+const MUSIC=[['sfx boot','开机','Boot'],['sfx levelup','升级','Level up'],['sfx done','完成','Done'],['sfx ask','等你批准','Needs approval'],['sfx greet','打招呼','Greet'],
+  ['sfx sleep','睡觉','Sleep'],['sfx wake','醒来','Wake'],['sfx shy','害羞','Shy'],['sfx sulk','委屈','Sulk'],['bgm 0','城镇小曲','Town tune'],['bgm 1','旅途进行曲','Journey march'],['bgm stop','停止','Stop']];
 $('music').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c})});
 /* sfxr generators: the classic presets from DrPetter's sfxr (public domain) */
 const SFXR_ZH={levelup:'升级',done:'完成',hurt:'受伤',ask:'等你批准',poke:'被戳',greet:'打招呼',dizzy:'晕了',startle:'吓一跳',
   sleep:'睡觉',wake:'醒来',hello:'应声',blip:'打字音',boot:'开机',sulk:'委屈',shy:'害羞'};
+const SFXR_EN={levelup:'Level up',done:'Done',hurt:'Hurt',ask:'Needs approval',poke:'Poked',greet:'Greet',dizzy:'Dizzy',startle:'Startled',
+  sleep:'Sleep',wake:'Wake',hello:'Answer',blip:'Typing blip',boot:'Boot',sulk:'Sulk',shy:'Shy'};
+const sfxName=s=>(LANG?SFXR_EN:SFXR_ZH)[s]||s;
+const GEN_EN={'拾取':'Pickup','激光':'Laser','爆炸':'Explosion','强化':'Power-up','受击':'Hit','跳跃':'Jump','哔':'Blip'};
 function sfxrBase(){return {wave_type:0,p_env_attack:0,p_env_sustain:.3,p_env_punch:0,p_env_decay:.4,p_base_freq:.3,p_freq_limit:0,
   p_freq_ramp:0,p_freq_dramp:0,p_vib_strength:0,p_vib_speed:0,p_arp_mod:0,p_arp_speed:0,p_duty:0,p_duty_ramp:0,p_repeat_speed:0,
   p_pha_offset:0,p_pha_ramp:0,p_lpf_freq:1,p_lpf_ramp:0,p_lpf_resonance:0,p_hpf_freq:0,p_hpf_ramp:0,sound_vol:.25}}
@@ -287,29 +344,33 @@ const GENS={
   '哔':p=>{p.wave_type=rnd(1);if(p.wave_type==0)p.p_duty=frnd(.6);p.p_base_freq=.2+frnd(.4);
     p.p_env_sustain=.1+frnd(.1);p.p_env_decay=frnd(.2);p.p_hpf_freq=.1},
 };
-function sfxParams(){try{return JSON.parse($('sfxjson').value)}catch(e){toast('JSON 格式不对');return null}}
+function sfxParams(){try{return JSON.parse($('sfxjson').value)}catch(e){toast(T('JSON 格式不对','Invalid JSON'));return null}}
 function sfxPost(o){return fetch('/api/sfxr',{method:'POST',body:JSON.stringify(o)}).then(r=>{if(!r.ok)throw 0;return r})}
 async function sfxSlots(){try{const d=await (await fetch('/api/sfxr')).json();const cur=$('sfxslot').value;
-  $('sfxslot').innerHTML=d.slots.map(x=>`<option value="${x.name}">${SFXR_ZH[x.name]||x.name}${x.custom?'（已替换）':''}</option>`).join('');
+  $('sfxslot').innerHTML=d.slots.map(x=>`<option value="${x.name}">${sfxName(x.name)}${x.custom?T('（已替换）',' (replaced)'):''}</option>`).join('');
   if(cur)$('sfxslot').value=cur}catch(e){}}
-$('gens').innerHTML=Object.keys(GENS).map(k=>`<button data-g="${k}">${k}</button>`).join('');
+function buildButtons(){
+  $('states').innerHTML=DEMO.map(s=>`<button data-s="${s}">${stName(s)}</button>`).join('');
+  $('music').innerHTML=MUSIC.map(([c,zh,en])=>`<button data-c="${c}">${T(zh,en)}</button>`).join('');
+  $('gens').innerHTML=Object.keys(GENS).map(k=>`<button data-g="${k}">${T(k,GEN_EN[k])}</button>`).join('');
+  $('camBtn').textContent=camT?T('关闭画面','Hide picture'):T('看摄像头画面','Show camera picture');
+}
 $('gens').addEventListener('click',e=>{const g=e.target.dataset.g;if(!g)return;const p=sfxrBase();GENS[g](p);
   for(const k in p)if(typeof p[k]=='number'&&k!='wave_type')p[k]=Math.round(p[k]*1e4)/1e4;
-  $('sfxjson').value=JSON.stringify(p);sfxPost({slot:'preview',params:p}).catch(()=>toast('播放失败'))});
-$('sfxplay').onclick=()=>{const p=sfxParams();if(p)sfxPost({slot:'preview',params:p}).catch(()=>toast('播放失败'))};
+  $('sfxjson').value=JSON.stringify(p);sfxPost({slot:'preview',params:p}).catch(()=>toast(T('播放失败','Playback failed')))});
+$('sfxplay').onclick=()=>{const p=sfxParams();if(p)sfxPost({slot:'preview',params:p}).catch(()=>toast(T('播放失败','Playback failed')))};
 $('sfxset').onclick=()=>{const p=sfxParams();if(!p)return;const s=$('sfxslot').value;
-  sfxPost({slot:s,params:p}).then(()=>{toast('已替换「'+(SFXR_ZH[s]||s)+'」');sfxSlots()}).catch(()=>toast('保存失败'))};
+  sfxPost({slot:s,params:p}).then(()=>{toast(T('已替换「'+sfxName(s)+'」','Replaced "'+sfxName(s)+'"'));sfxSlots()}).catch(()=>toast(T('保存失败','Save failed')))};
 $('sfxreset').onclick=()=>{const s=$('sfxslot').value;
-  sfxPost({slot:s,reset:true}).then(()=>{toast('「'+(SFXR_ZH[s]||s)+'」已恢复原版');sfxSlots()}).catch(()=>toast('失败'))};
-sfxSlots();
+  sfxPost({slot:s,reset:true}).then(()=>{toast(T('「'+sfxName(s)+'」已恢复原版','"'+sfxName(s)+'" restored'));sfxSlots()}).catch(()=>toast(T('失败','Failed')))};
 $('quick').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c}).then(()=>toast(e.target.textContent))});
 $('wifi').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);
-  try{const r=await fetch('/api/wifi',{method:'POST',body:JSON.stringify({ssid:f.get('ssid'),psk:f.get('psk')||''})});if(!r.ok)throw 0;e.target.psk.value='';toast('正在切换网络…')}catch(x){toast('提交失败')}});
+  try{const r=await fetch('/api/wifi',{method:'POST',body:JSON.stringify({ssid:f.get('ssid'),psk:f.get('psk')||''})});if(!r.ok)throw 0;e.target.psk.value='';toast(T('正在切换网络…','Switching networks…'))}catch(x){toast(T('提交失败','Submit failed'))}});
 let camT=null;
 $('camBtn').addEventListener('click',()=>{const img=$('camImg');
-  if(camT){clearInterval(camT);camT=null;img.style.display='none';$('camBtn').textContent='看摄像头画面';return}
-  const load=()=>{img.src='/api/cam.bmp?t='+Date.now()};load();camT=setInterval(load,700);img.style.display='block';$('camBtn').textContent='关闭画面'});
-loadCfg().catch(()=>{});poll();
+  if(camT){clearInterval(camT);camT=null;img.style.display='none';buildButtons();return}
+  const load=()=>{img.src='/api/cam.bmp?t='+Date.now()};load();camT=setInterval(load,700);img.style.display='block';buildButtons()});
+applyLang();loadCfg().catch(()=>{});poll();
 </script>
 </body>
 </html>

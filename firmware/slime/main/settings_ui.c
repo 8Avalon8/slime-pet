@@ -5,13 +5,17 @@
 
 #include "config.h"
 #include "slime_menu.h"
+#include "slime_text.h"
 
 #define IDLE_CLOSE_S 30
 
-enum { I_HELP, I_DEMO, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
+enum { I_LANG, I_HELP, I_DEMO, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
        I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_AICOMMENT, I_COUNT };
 
+static const char *const LANG_OPTS[] = {"中文", "English"};
+
 static sl_menu_item_t s_items[I_COUNT] = {
+    [I_LANG] = {"语言 / Language", SL_MI_CHOICE, 0, 0, SL_LANG_COUNT - 1, 1, .opts = LANG_OPTS},
     [I_HELP] = {"玩法说明", SL_MI_ACTION},
     [I_DEMO] = {"功能演示", SL_MI_ACTION},
     [I_FOCUS] = {"开始 / 结束专注", SL_MI_ACTION},
@@ -42,13 +46,63 @@ static sl_menu_item_t s_items[I_COUNT] = {
     [I_AICOMMENT] = {"AI 点评", SL_MI_BOOL},
 };
 
+/* English label and unit per item; the Chinese ones above are kept in s_zh. */
+static const char *const EN[I_COUNT][2] = {
+    [I_LANG] = {"Language / 语言"},
+    [I_HELP] = {"How to play"},
+    [I_DEMO] = {"Feature demo"},
+    [I_FOCUS] = {"Start / stop focus"},
+    [I_FOCUSMIN] = {"Focus length", "m"},
+    [I_NIGHTS] = {"Quiet from", ":00"},
+    [I_NIGHTE] = {"Quiet until", ":00"},
+    [I_SCREEN] = {"Brightness", "%"},
+    [I_SLEEPB] = {"Asleep brightness", "%"},
+    [I_LED] = {"LED brightness", "%"},
+    [I_SLEEPM] = {"Auto sleep", "m"},
+    [I_VOL] = {"Volume", "%"},
+    [I_CLAP] = {"Clap sensitivity", ""},
+    [I_SOUND] = {"Sound effects"},
+    [I_BLIP] = {"Typing blips"},
+    [I_BREATH] = {"Breathing LEDs when idle"},
+    [I_MOTOR] = {"Vibration"},
+    [I_MIC] = {"Microphone"},
+    [I_DANCE] = {"Bob to the sound"},
+    [I_TILT] = {"Tilt to slide"},
+    [I_FPS] = {"Show FPS"},
+    [I_CAMERA] = {"Camera"},
+    [I_SIT] = {"Sitting reminder", "m"},
+    [I_CAMVIEW] = {"Camera view"},
+    [I_WIFI] = {"Wi-Fi"},
+    [I_BGM] = {"Hum when idle"},
+    [I_BGMPLAY] = {"Sing a song now"},
+    [I_CAMPIP] = {"Camera thumbnail always on"},
+    [I_AICOMMENT] = {"AI comments"},
+};
+static const char *s_zh[I_COUNT][2];
+
 static sl_menu_t s_menu = {.items = s_items, .n = I_COUNT, .flash_row = -1};
 static bool s_open, s_dirty;
 static int s_action = -1;
 static double s_last_tap;
 
+static void apply_lang(void)
+{
+    if (!s_zh[I_HELP][0]) {
+        for (int i = 0; i < I_COUNT; i++) {
+            s_zh[i][0] = s_items[i].label;
+            s_zh[i][1] = s_items[i].unit;
+        }
+    }
+    const bool en = sl_lang == SL_LANG_EN;
+    for (int i = 0; i < I_COUNT; i++) {
+        s_items[i].label = en ? EN[i][0] : s_zh[i][0];
+        s_items[i].unit = en ? EN[i][1] : s_zh[i][1];
+    }
+}
+
 static void from_cfg(const slime_cfg_t *c)
 {
+    s_items[I_LANG].value = c->lang;
     s_items[I_FOCUSMIN].value = c->focus_min;
     s_items[I_NIGHTS].value = c->night_start;
     s_items[I_NIGHTE].value = c->night_end;
@@ -75,6 +129,7 @@ static void from_cfg(const slime_cfg_t *c)
 
 static void to_cfg(slime_cfg_t *c)
 {
+    c->lang = s_items[I_LANG].value;
     c->focus_min = s_items[I_FOCUSMIN].value;
     c->night_start = s_items[I_NIGHTS].value;
     c->night_end = s_items[I_NIGHTE].value;
@@ -173,7 +228,8 @@ void sui_close(void)
 
 void sui_render(sg_canvas_t *cv)
 {
-    sl_menu_render(cv, &s_menu, "设置");
+    apply_lang(); /* the language may have just changed from this menu or the web panel */
+    sl_menu_render(cv, &s_menu, SL_TR("设置", "Settings"));
     s_dirty = false;
 }
 

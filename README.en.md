@@ -4,7 +4,7 @@
 
 A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosaico/esp-mosaico-bsp) board (ESP32-S31, 480×480 AMOLED). It follows your Claude Code sessions: it thinks while Claude thinks, shows what Claude is working on, and calls you, flashes and vibrates when Claude needs your approval. It can also see you, hear you, and feel you shaking it.
 
-> The on-device text and the web panel are in Chinese for now. Translations are welcome; see "Customising" below for how text is rendered.
+> The device and the web panel speak Chinese or English: pick **Language** at the top of the device settings, or use the EN / 中文 button in the panel. Both switch together.
 
 ![The slime's states](docs/images/states.png)
 
@@ -22,7 +22,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Camera** (optional module) | Its eyes follow you; tilt your head and it tilts too; nod and it's happy, shake your head and it sulks; stare and it gets shy; cover the lens for peekaboo; reminds you to get up after sitting too long; a corner thumbnail shows what it sees. All computed on the device; no picture leaves it |
 | **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes; a built-in sfxr engine lets you generate and swap any sound from the web panel |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
-| **Everyday** | Clock and time-of-day greetings, quiet hours, a focus timer, sitting reminders, a help page, and a one-press feature demo for recording videos |
+| **Everyday** | Chinese / English UI, clock and time-of-day greetings, quiet hours, a focus timer, sitting reminders, a help page, and a one-press feature demo for recording videos |
 | **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, custom sounds, the camera picture |
 | **Wireless updates** | Two-slot OTA; a new image must run for 30 s before it confirms itself, and a crash before that rolls back to the old one |
 
@@ -77,7 +77,7 @@ python3 bridge/install_hooks.py --uninstall
 
 The hooks are asynchronous and never slow Claude down; when the device is offline they fail silently.
 
-**AI comments** (optional): in [LM Studio](https://lmstudio.ai/), download `gemma-4-e4b-it` and start the local server (default `http://localhost:1234`). After each Claude turn that used tools, the hook writes a comment in the background and sends it to the slime. Turn it off in the device settings, or with `SLIME_AI=0` on the computer; `SLIME_LLM_URL` / `SLIME_LLM_MODEL` pick another endpoint or model. Comments are written in Chinese, to match the on-device font.
+**AI comments** (optional): in [LM Studio](https://lmstudio.ai/), download `gemma-4-e4b-it` and start the local server (default `http://localhost:1234`). After each Claude turn that used tools, the hook writes a comment in the background and sends it to the slime. Turn it off in the device settings, or with `SLIME_AI=0` on the computer; `SLIME_LLM_URL` / `SLIME_LLM_MODEL` pick another endpoint or model. Comments follow the device language (the hook asks the device over Wi-Fi); `SLIME_LANG=zh|en` overrides it.
 
 ## Repository layout
 
@@ -113,7 +113,7 @@ make test        # cc_track unit tests + pixel-exact check of the dual-core spli
   python3 tools/gen_glyphs.py path/to/NotoSansSC.ttf
   ```
 
-  Latin text works out of the box, since printable ASCII is always included.
+  Latin text works out of the box, since printable ASCII is always included. Every on-device string is written as `SL_TR("中文", "English")` (`slime_text.h`); the English side sticks to ASCII so it needs no extra glyphs. The web panel keeps its English text in `main/web/index.html` (`EN_TEXT` and the `T()` calls).
 
 ## Troubleshooting
 

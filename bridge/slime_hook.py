@@ -15,7 +15,8 @@ re-resolved (slime.local, IPv4 only: a dual-stack lookup waits ~5 s for a missin
 After each Claude turn that used tools, a detached child asks a local model (LM Studio,
 http://localhost:1234 by default) for a one-line comment in the pet's voice and sends it as
 "say <mood> <text>". The transcript only ever goes to that local endpoint. SLIME_AI=0 turns it
-off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model.
+off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model. Comments follow the pet's
+language setting (asked over Wi-Fi); SLIME_LANG=zh|en overrides it.
 
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
@@ -233,7 +234,7 @@ def send_usb(line):
 LLM_URL = os.environ.get("SLIME_LLM_URL", "http://localhost:1234/v1")
 LLM_PREFER = ["gemma-4-e4b-it"]  # small and quick; anything else must be named in SLIME_LLM_MODEL
 COMMENT_GAP_S = 30
-COMMENT_MAX = 17  # one 22 px dialog line
+COMMENT_MAX = {"zh": 17, "en": 36}  # one 22 px dialog line
 LAST_COMMENT = os.path.join(HERE, ".last_comment")
 PERSONA = (
     "你是一只住在桌面上的史莱姆宠物，正在看主人和 Claude Code 一起写代码。"
@@ -241,6 +242,28 @@ PERSONA = (
     "可以夸奖、鼓励、调侃或担心，不要复述命令，不要提到 AI、模型或 Claude 以外的名字。"
     '只输出 JSON：{"text":"……","mood":"happy|proud|worried|neutral"}。'
 )
+PERSONA_EN = (
+    "You are a slime pet living on a desk, watching your owner write code with Claude Code. "
+    "From the summary of this turn below, write one casual, cute and specific English comment of at most 32 characters: "
+    "praise, cheer, tease or worry, but don't repeat commands and don't name AI, models or anyone but Claude. "
+    'Output only JSON: {"text":"...","mood":"happy|proud|worried|neutral"}.'
+)
+
+
+def pet_lang():
+    """The pet's UI language ("zh" or "en"): SLIME_LANG, else its setting over Wi-Fi, else Chinese."""
+    env = os.environ.get("SLIME_LANG", "").lower()
+    if env in ("zh", "en"):
+        return env
+    try:
+        with open(ADDR_CACHE) as f:
+            ip = f.read().strip()
+        if ip and not ip.startswith("fail "):
+            with urllib.request.urlopen("http://%s/api/config" % ip, timeout=1.5) as r:
+                return "en" if json.load(r).get("lang") == 1 else "zh"
+    except (OSError, ValueError):
+        pass
+    return "zh"
 
 
 def _text_of(content):
@@ -318,12 +341,13 @@ def pick_model():
     return next((m for m in LLM_PREFER if m in ids), None)
 
 
-def ask_model(summary):
+def ask_model(summary, lang="zh"):
     model = pick_model()
     if not model:
         return None
-    ok = drawable()
-    messages = [{"role": "system", "content": PERSONA}, {"role": "user", "content": summary}]
+    ok = drawable() if lang == "zh" else set(range(0x20, 0x7F))  # English: plain ASCII only
+    persona = PERSONA_EN if lang == "en" else PERSONA
+    messages = [{"role": "system", "content": persona}, {"role": "user", "content": summary}]
     mood, text = "neutral", ""
     for attempt in range(2):
         body = {"model": model, "max_tokens": 120, "temperature": 0.9, "messages": messages}
@@ -336,14 +360,18 @@ def ask_model(summary):
             data = json.loads(m.group(0)) if m else {"text": out}
         except ValueError:
             data = {"text": out}
-        text = " ".join(str(data.get("text", "")).split()).strip("\"'“”")[:COMMENT_MAX]
+        text = " ".join(str(data.get("text", "")).split()).strip("\"'“”")
+        if len(text) > COMMENT_MAX[lang]:
+            text = text[:COMMENT_MAX[lang]]
+            if lang == "en" and " " in text:  # don't cut a word in half
+                text = text.rsplit(" ", 1)[0]
         mood = data.get("mood") if data.get("mood") in ("happy", "proud", "worried", "neutral") else "neutral"
         bad = [ch for ch in text if ord(ch) not in ok]
         if not bad:
             break
         # the pet only has the common characters: ask once more, then drop what it cannot draw
-        messages += [{"role": "assistant", "content": out},
-                     {"role": "user", "content": "换一种说法，不要用这些字：" + "".join(bad)}]
+        retry = ("Say it another way, plain ASCII only, without: " if lang == "en" else "换一种说法，不要用这些字：")
+        messages += [{"role": "assistant", "content": out}, {"role": "user", "content": retry + "".join(bad)}]
     text = "".join(ch for ch in text if ord(ch) in ok).strip()
     return (mood, text) if text else None
 
@@ -357,7 +385,7 @@ def comment(path):
     summary = turn_summary(path)
     if not summary:
         return
-    got = ask_model(summary)
+    got = ask_model(summary, pet_lang())
     if not got:
         return
     open(LAST_COMMENT, "w").close()

@@ -89,7 +89,7 @@ python3 bridge/install_hooks.py --uninstall
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
 | `firmware/slime/patches/` | 对官方 BSP 的补丁（构建时自动打上） |
-| `bridge/` | 电脑端：Claude Code 钩子、Wi-Fi 配置、假设备 `fake_device.py` |
+| `bridge/` | 电脑端：Claude Code 钩子、Wi-Fi 配置 |
 | `design/slime_preview.html` | 浏览器版设计稿：形象、状态、果冻物理参数的来源 |
 
 ## 在电脑上出图和测试

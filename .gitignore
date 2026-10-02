@@ -9,6 +9,7 @@ bridge/.port.lock
 bridge/.device_addr*
 bridge/.ota_token
 bridge/.last_comment
+bridge/.slime/
 __pycache__/
 .DS_Store
 

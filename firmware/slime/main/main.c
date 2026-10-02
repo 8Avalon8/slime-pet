@@ -5,7 +5,7 @@
  * dirty rectangle to the CO5300 over QSPI. Rendering of frame N+1 overlaps
  * the DMA transfer of frame N.
  *
- * Inputs: AI button = mute / help page, BOOT button = focus timer / settings;
+ * Inputs: AI button = mute / push-to-talk (or the help page), BOOT button = focus timer / settings;
  * touch left/right = poke; Claude Code hook lines over Wi-Fi (web.h) or USB CDC (cc_track.h);
  * IMU tilt/bumps/shakes and the Interaction module (sensors.h).
  * HP follows the fuel gauge. The "brain" picks the persistent state every frame:
@@ -83,6 +83,7 @@ static long s_px_pushed;
 
 typedef enum { EV_NONE = 0, EV_AI_CLICK, EV_AI_LONG, EV_BOOT_CLICK, EV_BOOT_LONG } ev_t;
 static atomic_int s_event;
+static atomic_bool s_ai_up; /* AI key released: its own flag, a click arrives right behind it */
 
 static bool IRAM_ATTR on_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *e, void *ctx)
 {
@@ -138,6 +139,7 @@ static void push_rect(sl_rect_t r)
 
 /* Board buttons: ctx carries the event to raise (AI key, BOOT key; single click / long press). */
 static void on_button(void *btn, void *ctx) { atomic_store(&s_event, (int)(intptr_t)ctx); }
+static void on_ai_up(void *btn, void *ctx) { atomic_store(&s_ai_up, true); }
 
 /* Fatal part: power + display + framebuffers. */
 static esp_err_t init_display(void)
@@ -181,6 +183,7 @@ static void init_inputs(char *err, size_t len)
     if (bsp_iot_button_create(btns, &n, BSP_BUTTON_NUM) == ESP_OK && n > 0) {
         iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_SINGLE_CLICK, NULL, on_button, (void *)EV_AI_CLICK);
         iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_LONG_PRESS_START, NULL, on_button, (void *)EV_AI_LONG);
+        iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_PRESS_UP, NULL, on_ai_up, NULL);
     } else {
         ESP_LOGW(TAG, "buttons unavailable");
         strlcat(err, " button", len);
@@ -272,6 +275,9 @@ typedef struct {
     int hum_idx;
     bool night;                 /* quiet hours right now */
     double focus_end, break_end; /* focus timer: 0 = not running */
+    /* push-to-talk: recording while the AI key is held, then waiting for the bridge's answer */
+    bool listening;
+    double voice_wait_until; /* 0 = not waiting */
     /* demo: a scripted tour of every feature, for recording a video */
     bool demo, demo_pip;
     int demo_i; /* -1 = countdown */
@@ -444,19 +450,36 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
         if (i >= 0) audio_play((sfx_t)i);
         return;
     }
-    if (!strncmp(line, "say ", 4)) { /* bridge: "say <mood> <one line>", a local model's comment */
+    /* bridge: "say <mood> <one line>", a model's comment or a proactive line (mood "remind": Claude
+     * still waits for you, so it nudges even in the wait state); "talk <mood> <line>", a voice answer */
+    const bool talk = !strncmp(line, "talk ", 5);
+    if (talk || !strncmp(line, "say ", 4)) {
         char mood[12] = "";
         int off = 0;
-        if (sscanf(line + 4, "%11s %n", mood, &off) == 1 && off > 0 && b->cfg.ai_comment && !b->demo) {
-            const char *text = line + 4 + off;
+        const char *rest = line + (talk ? 5 : 4);
+        if (sscanf(rest, "%11s %n", mood, &off) == 1 && off > 0 && (talk || b->cfg.ai_comment) && !b->demo) {
+            const char *text = rest + off;
+            if (talk && b->voice_wait_until) {
+                b->voice_wait_until = 0;
+                b->manual_until = 0;
+            }
+            if (!strcmp(mood, "remind")) {
+                if (a->state == SL_WAIT) {
+                    react(b, a, SL_WAIT, now, "%s", text);
+                    buzz(HAPTIC_NUDGE);
+                    sfx(a, SFX_ASK);
+                }
+                ESP_LOGI(TAG, "remind: %s", text);
+                return;
+            }
             const sl_state_t st = !strcmp(mood, "worried") ? SL_SULK : (!strcmp(mood, "neutral") ? SL_POKE_R : SL_GREET);
-            if (a->state != SL_SLEEP && a->state != SL_WAIT) {
+            if (talk || (a->state != SL_SLEEP && a->state != SL_WAIT)) {
                 react(b, a, st, now, "%s", text);
                 sfx(a, SFX_HELLO);
             }
             snprintf(b->notice, sizeof b->notice, "%s", text); /* stays up after the reaction ends */
             b->notice_until = now + 20;
-            ESP_LOGI(TAG, "comment (%s): %s", mood, text);
+            ESP_LOGI(TAG, "%s (%s): %s", talk ? "talk" : "comment", mood, text);
         }
         return;
     }
@@ -771,6 +794,8 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
     bootlog_json(boots, sizeof boots);
     vision_state_t vs;
     vision_get(&vs);
+    audio_rec_state_t vr;
+    audio_rec_get(&vr);
     json_esc(e1, sizeof e1, msg);
     json_esc(e2, sizeof e2, cc_detail);
     int n = snprintf(js, sizeof js,
@@ -797,6 +822,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"mod\":{\"ok\":%s,\"motion\":%s,\"light\":%u},"
              "\"mic\":{\"ok\":%s,\"db\":%.1f,\"floor\":%.1f,\"claps\":%d},"
              "\"net\":{\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fails\":%d,\"reason\":%d},"
+             "\"voice\":{\"on\":%s,\"seq\":%u,\"ready\":%s,\"rec\":%s},"
              "\"heap\":{\"int\":%u,\"psram\":%u},\"boots\":%s,\"crash\":%s,\"fw\":%s,\"clock\":\"%s\",\"night\":%s,\"focus\":%d,\"rest\":%d,\"demo\":%s,"
              "\"cam\":{\"on\":%s,\"ok\":%s,\"tries\":%d,\"err\":\"%s\",\"face\":%s,\"n\":%d,\"fx\":%.2f,\"fy\":%.2f,"
              "\"size\":%.2f,\"ms\":%.0f,\"raw_x\":%.2f,\"raw_y\":%.2f,\"motion\":%.2f,\"mx\":%.2f,\"luma\":%.0f,"
@@ -805,7 +831,8 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              ss.imu_ok ? "true" : "false", ss.ax, ss.ay, ss.az, ss.tilt, ss.face_down ? "true" : "false",
              ss.mod_ok ? "true" : "false", ss.motion ? "true" : "false", ss.light, au.ok && au.mic ? "true" : "false", au.db,
              au.floor, au.claps, net_state_name(ns.state), e2, ns.ip,
-             ns.rssi, ns.fails, ns.last_reason, (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             ns.rssi, ns.fails, ns.last_reason, b->cfg.voice ? "true" : "false", (unsigned)vr.seq,
+             vr.ready ? "true" : "false", vr.rec ? "true" : "false", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024), boots, crash, fw, clock, b->night ? "true" : "false",
              b->focus_end ? (int)(b->focus_end - now) : 0, b->break_end ? (int)(b->break_end - now) : 0, b->demo ? "true" : "false", vs.enabled ? "true" : "false",
              vs.ok ? "true" : "false", vs.tries, esp_err_to_name(vs.err), vs.face ? "true" : "false", vs.faces, vs.fx, vs.fy,
@@ -1000,6 +1027,48 @@ static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
     return b->demo;
 }
 
+/* ---------------- push-to-talk ---------------- */
+
+#define VOICE_MIN_MS 600
+#define VOICE_WAIT_S 25 /* speech to text plus a model answer, on the computer */
+
+static void voice_start(brain_t *b, sl_anim_t *a, double now)
+{
+    if (!audio_rec_start()) {
+        react(b, a, SL_SULK, now, SL_TR("没有内存录音了……", "No memory left to record..."));
+        return;
+    }
+    b->listening = true;
+    b->voice_wait_until = 0;
+    b->manual_until = now + AUDIO_REC_MAX_S + 5; /* the brain keeps its hands off while we listen */
+    react(b, a, SL_THINK, now, SL_TR("我在听，说完松开 AI 键～", "Listening! Let go when you are done~"));
+    buzz(HAPTIC_TICK);
+}
+
+static void voice_stop(brain_t *b, sl_anim_t *a, double now)
+{
+    b->listening = false;
+    const uint32_t ms = audio_rec_stop(VOICE_MIN_MS);
+    buzz(HAPTIC_TICK);
+    if (ms < VOICE_MIN_MS) {
+        b->manual_until = 0;
+        react(b, a, SL_POKE_R, now, SL_TR("太短了，按住 AI 键再说一次吧", "Too short, hold the AI key, try again"));
+        return;
+    }
+    b->voice_wait_until = now + VOICE_WAIT_S;
+    b->manual_until = b->voice_wait_until;
+    react(b, a, SL_THINK, now, SL_TR("嗯嗯，让我想想……", "Hmm, let me think..."));
+    ESP_LOGI(TAG, "voice: %u ms recorded", (unsigned)ms);
+}
+
+static void voice_tick(brain_t *b, sl_anim_t *a, double now)
+{
+    if (!b->voice_wait_until || now < b->voice_wait_until) return;
+    b->voice_wait_until = 0;
+    b->manual_until = 0;
+    react(b, a, SL_SULK, now, SL_TR("电脑那边没有回应……\nslime_buddy.py", "No answer from the computer...\nslime_buddy.py"));
+}
+
 /* ---------------- help screen ---------------- */
 
 static void draw_help(sg_canvas_t *cv)
@@ -1015,7 +1084,7 @@ static void draw_help(sg_canvas_t *cv)
         {{"歪头", "它跟着你歪"}, {"Tilt your head", "It tilts with you"}},
         {{"盯着它看", "它会害羞"}, {"Stare at it", "It gets shy"}},
         {{"点右上角小窗", "看摄像头全屏画面"}, {"Tap thumbnail", "Full-screen camera view"}},
-        {{"AI 键", "单击静音，长按看说明"}, {"AI key", "Click: mute; hold: this page"}},
+        {{"AI 键", "单击静音，长按说话"}, {"AI key", "Click: mute; hold: talk"}},
         {{"BOOT 键", "单击专注计时，长按设置"}, {"BOOT key", "Click: focus timer; hold: settings"}},
         {{"模块左右键", "音量减 / 加"}, {"Module L/R keys", "Volume down / up"}},
         {{"手机浏览器", "slime.local 完整面板"}, {"Phone browser", "slime.local full panel"}},
@@ -1412,9 +1481,12 @@ void app_main(void)
         const float dt = fminf(0.05f, (float)(now - prev));
         prev = now;
 
-        /* buttons: AI click = mute / unmute, AI hold = help page; BOOT click = focus timer,
+        /* buttons: AI click = mute / unmute, AI hold = talk (help page with voice off); BOOT click = focus timer,
          * BOOT hold = settings. Any of them closes the settings when open. */
         const int ev = atomic_exchange(&s_event, EV_NONE);
+        const bool ai_up = atomic_exchange(&s_ai_up, false);
+        if (s_b.listening && (ai_up || !audio_rec_active())) voice_stop(&s_b, &a, now); /* released, or 10 s full */
+        voice_tick(&s_b, &a, now);
         if (ev != EV_NONE && sui_active()) {
             sui_close();
         } else if (ev == EV_AI_CLICK) {
@@ -1425,6 +1497,8 @@ void app_main(void)
             react(&s_b, &a, SL_POKE_R, now, c.sound ? SL_TR("声音打开了！", "Sound is on!") : SL_TR("嘘……已经静音了。", "Shh... Muted."));
             buzz(HAPTIC_TICK);
             if (c.sound) audio_play(SFX_HELLO);
+        } else if (ev == EV_AI_LONG && s_b.cfg.voice && !s_b.demo) {
+            voice_start(&s_b, &a, now);
         } else if (ev == EV_AI_LONG) {
             s_open_help = true;
             buzz(HAPTIC_TICK);

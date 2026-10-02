@@ -1,5 +1,6 @@
 #include "slime_text.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 static const char *utf8_next(const char *s, uint32_t *cp)
@@ -39,6 +40,25 @@ static const sl_glyph_t *find(uint32_t cp, sl_font_t font)
     return NULL;
 }
 
+/* Main atlas first (all sizes, 8-bit), then the 22 px common-character table (4-bit). */
+static const sl_glyph_t *find_any(uint32_t cp, sl_font_t font, bool *a4)
+{
+    *a4 = false;
+    const sl_glyph_t *g = find(cp, font);
+    if (g || font != SL_FONT_22) return g;
+    int lo = 0, hi = sl_glyph_ext_count - 1;
+    while (lo <= hi) {
+        const int mid = (lo + hi) / 2;
+        if (sl_glyphs_ext[mid].cp == cp) {
+            *a4 = true;
+            return &sl_glyphs_ext[mid];
+        }
+        if (sl_glyphs_ext[mid].cp < cp) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return NULL;
+}
+
 int sl_text_count(const char *s)
 {
     int n = 0;
@@ -56,7 +76,8 @@ int sl_text_width(const char *s, sl_font_t font)
     uint32_t cp;
     while (*s) {
         s = utf8_next(s, &cp);
-        const sl_glyph_t *g = find(cp, font);
+        bool a4;
+        const sl_glyph_t *g = find_any(cp, font, &a4);
         w += g ? g->adv : 10;
     }
     return w;
@@ -68,7 +89,8 @@ int sl_text_missing(const char *s, sl_font_t font)
     uint32_t cp;
     while (*s) {
         s = utf8_next(s, &cp);
-        if (!find(cp, font)) n++;
+        bool a4;
+        if (!find_any(cp, font, &a4)) n++;
     }
     return n;
 }
@@ -86,16 +108,18 @@ int sl_text_draw(sg_canvas_t *cv, const char *s, float x, float baseline, sl_fon
             continue;
         }
         n++;
-        const sl_glyph_t *g = find(cp, font);
+        bool is4;
+        const sl_glyph_t *g = find_any(cp, font, &is4);
         if (!g) {
             pen += 10;
             continue;
         }
         const int gx = (int)(pen + 0.5f) + g->ox, gy = (int)(baseline + 0.5f) + g->oy;
-        const uint8_t *a8 = &sl_glyph_a8[g->off];
+        const uint8_t *a8 = &sl_glyph_a8[g->off], *a4 = &sl_glyph_a4[g->off];
         for (int yy = 0; yy < g->h; yy++) {
             for (int xx = 0; xx < g->w; xx++) {
-                const uint8_t a = a8[yy * g->w + xx];
+                const int i = yy * g->w + xx;
+                const uint8_t a = is4 ? ((a4[i >> 1] >> ((i & 1) ? 0 : 4)) & 15) * 17 : a8[i];
                 if (a) sg_blend_fix(cv, gx + xx, gy + yy, cf, (a * 257 + 128) >> 8);
             }
         }

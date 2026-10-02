@@ -9,7 +9,7 @@
 #define IDLE_CLOSE_S 30
 
 enum { I_HELP, I_DEMO, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
-       I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_COUNT };
+       I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_AICOMMENT, I_COUNT };
 
 static sl_menu_item_t s_items[I_COUNT] = {
     [I_HELP] = {"玩法说明", SL_MI_ACTION},
@@ -39,6 +39,7 @@ static sl_menu_item_t s_items[I_COUNT] = {
     [I_BGM] = {"空闲时哼歌", SL_MI_BOOL},
     [I_BGMPLAY] = {"现在唱一首", SL_MI_ACTION},
     [I_CAMPIP] = {"摄像头小窗常开", SL_MI_BOOL},
+    [I_AICOMMENT] = {"AI 点评", SL_MI_BOOL},
 };
 
 static sl_menu_t s_menu = {.items = s_items, .n = I_COUNT, .flash_row = -1};
@@ -69,6 +70,7 @@ static void from_cfg(const slime_cfg_t *c)
     s_items[I_SIT].value = c->sit_min;
     s_items[I_BGM].value = c->bgm;
     s_items[I_CAMPIP].value = c->cam_pip;
+    s_items[I_AICOMMENT].value = c->ai_comment;
 }
 
 static void to_cfg(slime_cfg_t *c)
@@ -94,6 +96,7 @@ static void to_cfg(slime_cfg_t *c)
     c->sit_min = s_items[I_SIT].value;
     c->bgm = s_items[I_BGM].value;
     c->cam_pip = s_items[I_CAMPIP].value;
+    c->ai_comment = s_items[I_AICOMMENT].value;
 }
 
 void sui_open(const char *wifi, const char *addr, int lv, int exp, int need, double now)

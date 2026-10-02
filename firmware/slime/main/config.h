@@ -31,6 +31,8 @@ typedef struct {
     /* v5 */
     uint8_t night_start, night_end; /* quiet hours, 0-23 o'clock; equal = off */
     uint8_t focus_min;              /* focus timer length, minutes */
+    /* v6 */
+    bool ai_comment; /* show the one-line comments the bridge's local model writes after a Claude turn */
 } slime_cfg_t;
 
 /* Initializes NVS (shared with the progress store) and loads settings; defaults on any error. */

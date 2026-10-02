@@ -6,12 +6,15 @@
 
 ![史莱姆的各种状态](docs/images/states.png)
 
+> 想用 AI 编程助手做一个自己的版本？看 [docs/PROMPTS.md](docs/PROMPTS.md)：按阶段整理的复刻提示词，附带每一步的验收标准和我们踩过的坑。
+
 ## 能做什么
 
 | | |
 |---|---|
 | **Claude Code 联动** | 思考 / 干活（显示工具和命令）/ 等你批准（叫你、闪灯、震动）/ 完成任务攒经验升级 / 命令出错受伤。多个会话同时跑也分得清。走 Wi-Fi，USB 兜底 |
-| **触摸** | 点一下戳它，长按 1 秒打开设置菜单 |
+| **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。会话记录只发给本机的模型，不上传云端 |
+| **触摸与按键** | 点一下戳它，长按 1 秒打开设置菜单；AI 键单击静音、长按看玩法说明；BOOT 键单击开始/结束专注、长按打开设置；交互模块左右键调音量 |
 | **动作感应**（板载 IMU） | 歪过来会滑，使劲摇会晕，扣过来放就睡觉 |
 | **麦克风** | 拍两下手打招呼，跟着音乐节拍晃（会排除打字声） |
 | **摄像头**（可选模块） | 眼睛跟着你、歪头它也歪、点头开心、摇头委屈、盯着它会害羞、盖住镜头躲猫猫、坐太久提醒你起来，右上角小窗看它看到的画面。全部在设备上算，画面不出设备 |
@@ -72,6 +75,8 @@ python3 bridge/install_hooks.py --uninstall
 
 钩子是异步的，不会拖慢 Claude；设备不在线时静默失败。
 
+**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型。
+
 ## 仓库结构
 
 | 目录 | 内容 |
@@ -100,7 +105,7 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 
 - **乐曲**：乐谱在 `main/tunes_original.h`，用 MML 写，语法见 `audio.c` 开头。想用自己的曲子，把同样的两张表放进 `main/tunes_local.h`：这个文件不进 git，存在时会替代原创曲目。
 - **音效**：网页面板「自制音效」区可以随机生成 sfxr 音效，或粘贴 [sfxr.me](https://sfxr.me/) 导出的 JSON，替换任意场景的音效。替换存在设备里，不用重新编译。
-- **文案和字体**：改了代码里的中文字符串之后，要重新生成字形，需要 Pillow 和 [Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC)：
+- **文案和字体**：代码里出现的字会预先渲染成三种字号；另有一张 3,755 个常用字的扩展表（22 px），用来显示 AI 点评这类动态文字。改了代码里的中文字符串之后，要重新生成字形，需要 Pillow 和 [Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC)：
 
   ```bash
   python3 tools/gen_glyphs.py path/to/NotoSansSC.ttf

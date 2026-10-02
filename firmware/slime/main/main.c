@@ -5,7 +5,7 @@
  * dirty rectangle to the CO5300 over QSPI. Rendering of frame N+1 overlaps
  * the DMA transfer of frame N.
  *
- * Inputs: AI button = next state (held for MANUAL_HOLD_S), long press = idle;
+ * Inputs: AI button = mute / help page, BOOT button = focus timer / settings;
  * touch left/right = poke; Claude Code hook lines over Wi-Fi (web.h) or USB CDC (cc_track.h);
  * IMU tilt/bumps/shakes and the Interaction module (sensors.h).
  * HP follows the fuel gauge. The "brain" picks the persistent state every frame:
@@ -33,6 +33,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "button_gpio.h"
 #include "iot_button.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -80,7 +81,7 @@ static sl_rect_t s_job_dirty;
 static double s_t_render, s_t_copy, s_t_wait, s_t_touch, s_t_anim;
 static long s_px_pushed;
 
-typedef enum { EV_NONE = 0, EV_NEXT, EV_IDLE } ev_t;
+typedef enum { EV_NONE = 0, EV_AI_CLICK, EV_AI_LONG, EV_BOOT_CLICK, EV_BOOT_LONG } ev_t;
 static atomic_int s_event;
 
 static bool IRAM_ATTR on_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *e, void *ctx)
@@ -135,8 +136,8 @@ static void push_rect(sl_rect_t r)
     }
 }
 
-static void on_click(void *btn, void *ctx) { atomic_store(&s_event, EV_NEXT); }
-static void on_long(void *btn, void *ctx) { atomic_store(&s_event, EV_IDLE); }
+/* Board buttons: ctx carries the event to raise (AI key, BOOT key; single click / long press). */
+static void on_button(void *btn, void *ctx) { atomic_store(&s_event, (int)(intptr_t)ctx); }
 
 /* Fatal part: power + display + framebuffers. */
 static esp_err_t init_display(void)
@@ -178,11 +179,21 @@ static void init_inputs(char *err, size_t len)
     button_handle_t btns[BSP_BUTTON_NUM] = {0};
     int n = 0;
     if (bsp_iot_button_create(btns, &n, BSP_BUTTON_NUM) == ESP_OK && n > 0) {
-        iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_SINGLE_CLICK, NULL, on_click, NULL);
-        iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_LONG_PRESS_START, NULL, on_long, NULL);
+        iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_SINGLE_CLICK, NULL, on_button, (void *)EV_AI_CLICK);
+        iot_button_register_cb(btns[BSP_BUTTON_AI], BUTTON_LONG_PRESS_START, NULL, on_button, (void *)EV_AI_LONG);
     } else {
         ESP_LOGW(TAG, "buttons unavailable");
         strlcat(err, " button", len);
+    }
+    /* BOOT is a strapping pin only at reset; after boot it is an ordinary button */
+    const button_config_t bc = {0};
+    const button_gpio_config_t gc = {.gpio_num = BSP_BUTTON_BOOT_GPIO, .active_level = BSP_BUTTON_ACTIVE_LEVEL};
+    button_handle_t boot = NULL;
+    if (iot_button_new_gpio_device(&bc, &gc, &boot) == ESP_OK) {
+        iot_button_register_cb(boot, BUTTON_SINGLE_CLICK, NULL, on_button, (void *)EV_BOOT_CLICK);
+        iot_button_register_cb(boot, BUTTON_LONG_PRESS_START, NULL, on_button, (void *)EV_BOOT_LONG);
+    } else {
+        ESP_LOGW(TAG, "BOOT button unavailable");
     }
 
     if (bsp_battery_init() != ESP_OK) {
@@ -433,6 +444,22 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
         if (i >= 0) audio_play((sfx_t)i);
         return;
     }
+    if (!strncmp(line, "say ", 4)) { /* bridge: "say <mood> <one line>", a local model's comment */
+        char mood[12] = "";
+        int off = 0;
+        if (sscanf(line + 4, "%11s %n", mood, &off) == 1 && off > 0 && b->cfg.ai_comment && !b->demo) {
+            const char *text = line + 4 + off;
+            const sl_state_t st = !strcmp(mood, "worried") ? SL_SULK : (!strcmp(mood, "neutral") ? SL_POKE_R : SL_GREET);
+            if (a->state != SL_SLEEP && a->state != SL_WAIT) {
+                react(b, a, st, now, "%s", text);
+                sfx(a, SFX_HELLO);
+            }
+            snprintf(b->notice, sizeof b->notice, "%s", text); /* stays up after the reaction ends */
+            b->notice_until = now + 20;
+            ESP_LOGI(TAG, "comment (%s): %s", mood, text);
+        }
+        return;
+    }
     if (sscanf(line, "focus %15s", name) == 1) {
         if (!strcmp(name, "start")) focus_start(b, a, now);
         else focus_stop(b, a, now);
@@ -594,13 +621,19 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
             }
             b->last_activity = now;
             break;
-        case SEV_BTN_L:
-        case SEV_BTN_R:
-            sl_anim_set_state(a, ev.kind == SEV_BTN_L ? SL_POKE_L : SL_POKE_R, now);
+        case SEV_BTN_L: /* Interaction module: volume down / up */
+        case SEV_BTN_R: {
+            slime_cfg_t c;
+            cfg_get(&c);
+            const int v = c.volume + (ev.kind == SEV_BTN_R ? 10 : -10);
+            c.volume = (uint8_t)(v < 0 ? 0 : (v > 100 ? 100 : v));
+            cfg_set(&c);
+            react(b, a, ev.kind == SEV_BTN_L ? SL_POKE_L : SL_POKE_R, now, "音量 %d%%", c.volume);
             buzz(HAPTIC_TICK);
-            sfx(a, SFX_POKE);
+            sfx(a, SFX_HELLO); /* at the new level (the settings apply before it plays) */
             b->last_activity = now;
             break;
+        }
         case SEV_MOTION:
             if (now - b->last_motion > AWAY_S && sl_state_duration(a->state) == 0 && a->state != SL_WAIT &&
                 a->state != SL_WORK && a->state != SL_THINK) {
@@ -980,13 +1013,16 @@ static void draw_help(sg_canvas_t *cv)
         {"歪头", "它跟着你歪"},
         {"盯着它看", "它会害羞"},
         {"点右上角小窗", "看摄像头全屏画面"},
+        {"AI 键", "单击静音，长按看说明"},
+        {"BOOT 键", "单击专注计时，长按设置"},
+        {"模块左右键", "音量减 / 加"},
         {"手机浏览器", "slime.local 完整面板"},
     };
     const sg_rgb_t gold = sg_hex(0xffd84a), white = {1, 1, 1}, dim = sg_hex(0x8d97ad);
     sg_fill_rect(cv, 0, 0, SCR, SCR, 0);
-    sl_text_draw(cv, "玩法说明", 190, 44, SL_FONT_22, gold, -1);
+    sl_text_draw(cv, "玩法说明", 190, 40, SL_FONT_22, gold, -1);
     for (int i = 0; i < (int)(sizeof LINES / sizeof LINES[0]); i++) {
-        const float y = 92 + i * 33;
+        const float y = 76 + i * 27;
         sl_text_draw(cv, LINES[i][0], 40, y, SL_FONT_18, gold, -1);
         sl_text_draw(cv, LINES[i][1], 190, y, SL_FONT_18, white, -1);
     }
@@ -1147,6 +1183,7 @@ static bool draw_camview(sg_canvas_t *cv, uint16_t *fb, uint32_t *seq)
 #define PIP_POPUP_S 20 /* shown this long after the camera comes up */
 static uint16_t *s_pip; /* last thumbnail, PSRAM */
 static bool s_pip_shown, s_open_camview;
+static bool s_open_settings, s_open_help; /* raised by the board buttons, acted on in the main loop */
 
 static bool pip_update(sg_canvas_t *cv, uint32_t *seq, bool force)
 {
@@ -1369,16 +1406,28 @@ void app_main(void)
         const float dt = fminf(0.05f, (float)(now - prev));
         prev = now;
 
+        /* buttons: AI click = mute / unmute, AI hold = help page; BOOT click = focus timer,
+         * BOOT hold = settings. Any of them closes the settings when open. */
         const int ev = atomic_exchange(&s_event, EV_NONE);
-        if (ev != EV_NONE && sui_active()) { /* the AI button leaves the settings */
+        if (ev != EV_NONE && sui_active()) {
             sui_close();
-        } else if (ev == EV_NEXT) {
-            sl_anim_set_state(&a, (sl_state_t)((a.state + 1) % SL_STATE_COUNT), now);
-            s_b.manual_until = now + MANUAL_HOLD_S;
-        }
-        if (ev == EV_IDLE) {
-            sl_anim_set_state(&a, SL_IDLE, now);
-            s_b.manual_until = 0;
+        } else if (ev == EV_AI_CLICK) {
+            slime_cfg_t c;
+            cfg_get(&c);
+            c.sound = !c.sound;
+            cfg_set(&c);
+            react(&s_b, &a, SL_POKE_R, now, c.sound ? "声音打开了！" : "嘘……已经静音了。");
+            buzz(HAPTIC_TICK);
+            if (c.sound) audio_play(SFX_HELLO);
+        } else if (ev == EV_AI_LONG) {
+            s_open_help = true;
+            buzz(HAPTIC_TICK);
+        } else if (ev == EV_BOOT_CLICK) {
+            if (s_b.focus_end || s_b.break_end) focus_stop(&s_b, &a, now);
+            else focus_start(&s_b, &a, now);
+            buzz(HAPTIC_TICK);
+        } else if (ev == EV_BOOT_LONG) {
+            s_open_settings = true;
         }
         if (ev != EV_NONE) s_b.last_activity = now;
         double ti = now_s();
@@ -1419,8 +1468,9 @@ void app_main(void)
                 long_done = true; /* during the demo a long press ends it (taps do not: you may be filming) */
                 demo_stop(&s_b, &a, now);
                 buzz(HAPTIC_NUDGE);
-            } else if (tp.down && !long_done && now - press_t0 > LONG_PRESS_S) {
+            } else if ((tp.down && !long_done && now - press_t0 > LONG_PRESS_S) || s_open_settings) {
                 long_done = true;
+                s_open_settings = false;
                 net_status_t ns;
                 net_get(&ns);
                 char wifi[48], addr[64];
@@ -1503,7 +1553,8 @@ void app_main(void)
             else focus_start(&s_b, &a, now);
         }
         if (sui_act == SUI_ACT_DEMO) demo_start(&s_b, &a, now);
-        if (sui_act == SUI_ACT_HELP) {
+        if (sui_act == SUI_ACT_HELP || s_open_help) {
+            s_open_help = false;
             helpview = true;
             help_t0 = now;
             draw_help(&cv);

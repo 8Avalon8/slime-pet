@@ -8,6 +8,7 @@ third_party/
 bridge/.port.lock
 bridge/.device_addr*
 bridge/.ota_token
+bridge/.last_comment
 __pycache__/
 .DS_Store
 

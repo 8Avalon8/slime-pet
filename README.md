@@ -15,7 +15,7 @@
 | | |
 |---|---|
 | **Claude Code 联动** | 思考 / 干活（显示工具和命令）/ 等你批准（叫你、闪灯、震动）/ 完成任务攒经验升级 / 命令出错受伤。多个会话同时跑也分得清。走 Wi-Fi，USB 兜底 |
-| **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。会话记录只发给本机的模型，不上传云端 |
+| **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。默认只发给本机的模型，不上传云端；也可以接任意 OpenAI 兼容的云端 API |
 | **触摸与按键** | 点一下戳它，长按 1 秒打开设置菜单；AI 键单击静音、长按看玩法说明；BOOT 键单击开始/结束专注、长按打开设置；交互模块左右键调音量 |
 | **动作感应**（板载 IMU） | 歪过来会滑，使劲摇会晕，扣过来放就睡觉 |
 | **麦克风** | 拍两下手打招呼，跟着音乐节拍晃（会排除打字声） |
@@ -77,7 +77,17 @@ python3 bridge/install_hooks.py --uninstall
 
 钩子是异步的，不会拖慢 Claude；设备不在线时静默失败。
 
-**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型。
+**AI 点评**（可选）：在 [LM Studio](https://lmstudio.ai/) 里下载 `gemma-4-e4b-it` 并开启本地服务（默认 `http://localhost:1234`）。之后 Claude 每做完一轮用到工具的工作，钩子会在后台生成一句点评发给史莱姆。设备的设置里可以关掉；电脑端用环境变量 `SLIME_AI=0` 关闭，`SLIME_LLM_URL` / `SLIME_LLM_MODEL` 换成别的接口或模型（Ollama 等本地服务直接可用）。
+
+想用云端 API（OpenAI、DeepSeek、OpenRouter 等 OpenAI 兼容接口）时，再设置 `SLIME_LLM_KEY`，例如：
+
+```bash
+export SLIME_LLM_URL=https://api.deepseek.com/v1
+export SLIME_LLM_MODEL=deepseek-chat
+export SLIME_LLM_KEY=sk-...
+```
+
+注意：这时每轮的精简摘要（你的请求前 300 字、最近几次工具操作、Claude 最后一句回复的前 600 字）会发给该服务商。不含文件内容和工具输出。
 
 ## 仓库结构
 

@@ -15,7 +15,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | | |
 |---|---|
 | **Claude Code** | Thinking / working (shows the tool and command) / waiting for your approval (calls you, flashes, vibrates) / earns EXP and levels up when a task finishes / gets hurt when a command fails. Keeps several sessions apart. Over Wi-Fi, with USB as the fallback |
-| **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". The transcript only goes to that local model, never to the cloud |
+| **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". By default the transcript only goes to that local model, never to the cloud; any OpenAI-compatible cloud API also works |
 | **Touch and buttons** | Tap to poke it, hold 1 s for the settings menu; AI key: click to mute, hold for the help page; BOOT key: click to start/stop focus, hold for settings; the Interaction module's left/right keys set the volume |
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
 | **Microphone** | Clap twice to say hi; it bobs to the beat of music (keyboard typing is ignored) |
@@ -77,7 +77,17 @@ python3 bridge/install_hooks.py --uninstall
 
 The hooks are asynchronous and never slow Claude down; when the device is offline they fail silently.
 
-**AI comments** (optional): in [LM Studio](https://lmstudio.ai/), download `gemma-4-e4b-it` and start the local server (default `http://localhost:1234`). After each Claude turn that used tools, the hook writes a comment in the background and sends it to the slime. Turn it off in the device settings, or with `SLIME_AI=0` on the computer; `SLIME_LLM_URL` / `SLIME_LLM_MODEL` pick another endpoint or model. Comments are written in Chinese, to match the on-device font.
+**AI comments** (optional): in [LM Studio](https://lmstudio.ai/), download `gemma-4-e4b-it` and start the local server (default `http://localhost:1234`). After each Claude turn that used tools, the hook writes a comment in the background and sends it to the slime. Turn it off in the device settings, or with `SLIME_AI=0` on the computer; `SLIME_LLM_URL` / `SLIME_LLM_MODEL` pick another endpoint or model (local servers such as Ollama work as is). Comments are written in Chinese, to match the on-device font.
+
+To use a cloud API (OpenAI, DeepSeek, OpenRouter or any other OpenAI-compatible endpoint), also set `SLIME_LLM_KEY`, for example:
+
+```bash
+export SLIME_LLM_URL=https://api.deepseek.com/v1
+export SLIME_LLM_MODEL=deepseek-chat
+export SLIME_LLM_KEY=sk-...
+```
+
+Note that each turn's condensed summary (the first 300 characters of your request, the last few tool calls, and the first 600 characters of Claude's last reply) then goes to that provider. File contents and tool output are never included.
 
 ## Repository layout
 

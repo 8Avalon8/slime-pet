@@ -15,7 +15,9 @@ re-resolved (slime.local, IPv4 only: a dual-stack lookup waits ~5 s for a missin
 After each Claude turn that used tools, a detached child asks a local model (LM Studio,
 http://localhost:1234 by default) for a one-line comment in the pet's voice and sends it as
 "say <mood> <text>". The transcript only ever goes to that local endpoint. SLIME_AI=0 turns it
-off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model.
+off; SLIME_LLM_URL / SLIME_LLM_MODEL pick another endpoint or model, and SLIME_LLM_KEY sends
+"Authorization: Bearer <key>" for an OpenAI-compatible cloud API (the turn summary then leaves
+this computer).
 
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
@@ -228,9 +230,10 @@ def send_usb(line):
             os.close(fd)
 
 
-# ---------------- AI comments (local model) ----------------
+# ---------------- AI comments (local model, or any OpenAI-compatible API) ----------------
 
-LLM_URL = os.environ.get("SLIME_LLM_URL", "http://localhost:1234/v1")
+LLM_URL = os.environ.get("SLIME_LLM_URL", "http://localhost:1234/v1").rstrip("/")
+LLM_KEY = os.environ.get("SLIME_LLM_KEY", "")
 LLM_PREFER = ["gemma-4-e4b-it"]  # small and quick; anything else must be named in SLIME_LLM_MODEL
 COMMENT_GAP_S = 30
 COMMENT_MAX = 17  # one 22 px dialog line
@@ -310,10 +313,18 @@ def drawable():
     return cps
 
 
+def llm_headers():
+    h = {"Content-Type": "application/json"}
+    if LLM_KEY:
+        h["Authorization"] = "Bearer " + LLM_KEY
+    return h
+
+
 def pick_model():
     if os.environ.get("SLIME_LLM_MODEL"):
         return os.environ["SLIME_LLM_MODEL"]
-    with urllib.request.urlopen(LLM_URL + "/models", timeout=3) as r:
+    req = urllib.request.Request(LLM_URL + "/models", headers=llm_headers())
+    with urllib.request.urlopen(req, timeout=3) as r:
         ids = [m["id"] for m in json.load(r).get("data", [])]
     return next((m for m in LLM_PREFER if m in ids), None)
 
@@ -328,7 +339,7 @@ def ask_model(summary):
     for attempt in range(2):
         body = {"model": model, "max_tokens": 120, "temperature": 0.9, "messages": messages}
         req = urllib.request.Request(LLM_URL + "/chat/completions", data=json.dumps(body).encode(),
-                                     headers={"Content-Type": "application/json"})
+                                     headers=llm_headers())
         with urllib.request.urlopen(req, timeout=90) as r:  # the first call may load the model
             out = json.load(r)["choices"][0]["message"]["content"]
         m = re.search(r"\{.*\}", out, re.S)

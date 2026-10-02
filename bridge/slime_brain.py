@@ -342,7 +342,7 @@ HOSTNAME = "slime.local"
 
 
 def device_ip():
-    ip = os.environ.get("SLIME_ADDR", "")
+    ip = os.environ.get("SLIME_HOST") or os.environ.get("SLIME_ADDR", "")  # host[:port], e.g. the simulator
     if ip:
         return ip
     try:

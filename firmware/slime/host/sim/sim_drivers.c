@@ -61,6 +61,61 @@ void audio_preview(const sfxr_params_t *p) { ESP_LOGI(TAG, "sound: sfxr preview"
 void audio_hold_off(uint32_t ms) {}
 void audio_get(audio_state_t *out) { *out = (audio_state_t){.ok = true, .mic = s_mic, .db = -60, .floor = -60}; }
 
+/* push-to-talk: records silence for as long as the button is held, so the bridge's voice path runs */
+static portMUX_TYPE s_rec_m = portMUX_INITIALIZER_UNLOCKED;
+static int16_t s_rec_buf[AUDIO_REC_RATE * AUDIO_REC_MAX_S];
+static audio_rec_state_t s_rec;
+static int64_t s_rec_t0;
+static size_t s_rec_len;
+
+bool audio_rec_start(void)
+{
+    portENTER_CRITICAL(&s_rec_m);
+    s_rec.rec = true;
+    s_rec_t0 = esp_timer_get_time();
+    portEXIT_CRITICAL(&s_rec_m);
+    ESP_LOGI(TAG, "mic: recording (silence in the simulator)");
+    return true;
+}
+uint32_t audio_rec_stop(uint32_t min_ms)
+{
+    portENTER_CRITICAL(&s_rec_m);
+    int64_t ms = s_rec.rec ? (esp_timer_get_time() - s_rec_t0) / 1000 : 0;
+    if (ms > AUDIO_REC_MAX_S * 1000) ms = AUDIO_REC_MAX_S * 1000;
+    s_rec.rec = false;
+    if (ms >= min_ms && ms > 0) {
+        s_rec_len = (size_t)ms * AUDIO_REC_RATE / 1000;
+        s_rec.seq++;
+        s_rec.ready = true;
+    }
+    portEXIT_CRITICAL(&s_rec_m);
+    return (uint32_t)ms;
+}
+bool audio_rec_active(void)
+{
+    portENTER_CRITICAL(&s_rec_m);
+    const bool on = s_rec.rec && esp_timer_get_time() - s_rec_t0 < AUDIO_REC_MAX_S * 1000000LL;
+    portEXIT_CRITICAL(&s_rec_m);
+    return on;
+}
+void audio_rec_get(audio_rec_state_t *out)
+{
+    portENTER_CRITICAL(&s_rec_m);
+    *out = s_rec;
+    portEXIT_CRITICAL(&s_rec_m);
+}
+const int16_t *audio_rec_take(uint32_t seq, size_t *samples)
+{
+    portENTER_CRITICAL(&s_rec_m);
+    const bool ok = s_rec.ready && seq == s_rec.seq;
+    if (ok) {
+        s_rec.ready = false;
+        *samples = s_rec_len;
+    }
+    portEXIT_CRITICAL(&s_rec_m);
+    return ok ? s_rec_buf : NULL;
+}
+
 /* ---------------- haptic ---------------- */
 
 static bool s_motor = true;

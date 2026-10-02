@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "sfxr.h"
@@ -62,3 +63,21 @@ void audio_preview(const sfxr_params_t *p);
 /* Ignore the mic for a while: the motor, a touch or a bump is not a clap. */
 void audio_hold_off(uint32_t ms);
 void audio_get(audio_state_t *out);
+
+/* Push-to-talk: 16 kHz mono 16-bit, up to AUDIO_REC_MAX_S, kept in PSRAM until the next one.
+ * Recording listens even with the mic setting off (the user asked for it) and ignores claps. */
+#define AUDIO_REC_RATE 16000
+#define AUDIO_REC_MAX_S 10
+bool audio_rec_start(void);
+/* Ends the recording; returns its length in ms. A recording of at least min_ms becomes the
+ * new "ready" one with a new sequence number (the bridge fetches it from /api/voice.wav). */
+uint32_t audio_rec_stop(uint32_t min_ms);
+bool audio_rec_active(void); /* false again once AUDIO_REC_MAX_S is full */
+typedef struct {
+    uint32_t seq; /* last finished recording, 0 = none yet */
+    bool ready;   /* not fetched yet */
+    bool rec;     /* recording now */
+} audio_rec_state_t;
+void audio_rec_get(audio_rec_state_t *out);
+/* The ready recording with this seq, marked as fetched; NULL if there is none. */
+const int16_t *audio_rec_take(uint32_t seq, size_t *samples);

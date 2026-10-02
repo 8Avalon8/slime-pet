@@ -33,6 +33,8 @@ typedef struct {
     uint8_t focus_min;              /* focus timer length, minutes */
     /* v6 */
     bool ai_comment; /* show the one-line comments the bridge's local model writes after a Claude turn */
+    /* v7 */
+    bool voice; /* hold the AI key to talk (bridge/slime_buddy.py answers); off = hold for the help page */
 } slime_cfg_t;
 
 /* Initializes NVS (shared with the progress store) and loads settings; defaults on any error. */

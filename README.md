@@ -120,7 +120,7 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 |---|---|
 | `firmware/slime/components/slime_core/` | 纯 C 渲染核心，不依赖 ESP-IDF：光栅库 `sg`、状态机和果冻弹簧 `slime_anim`、渲染 `slime_render`、文字 `slime_text`、菜单 `slime_menu` |
 | `firmware/slime/main/` | 设备端：主循环与"大脑"（`main.c`）、Claude Code 会话跟踪 `cc_track`、传感器 `sensors`、音频与合成器 `audio`/`sfxr`、乐谱 `tunes_original.h`、摄像头与人脸 `vision`、网络 `net`、网页面板 `web`、设置 `config`/`settings_ui`、无线更新 `ota`、崩溃记录 `bootlog` |
-| `firmware/slime/host/` | 电脑端测试程序：用同一份渲染代码出图、测速、跑单元测试 |
+| `firmware/slime/host/` | 电脑端测试程序：用同一份渲染代码出图、测速、跑单元测试；固件模拟器 `slime_sim` |
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
 | `firmware/slime/patches/` | 对官方 BSP 的补丁（构建时自动打上） |
@@ -137,6 +137,8 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 ```
 
 （出 PNG 用的是 macOS 的 `sips`；其他系统可以直接看 BMP。）
+
+**没有板子**：`make sim` 在电脑上跑真固件（窗口里能戳、摇、按键，Claude Code 钩子设 `SLIME_HOST=127.0.0.1:8080` 就能连上），`make simtest` 是端到端自动测试；只想测钩子可以用 `bridge/fake_device.py`。详见 [firmware/slime/host/README.md](firmware/slime/host/README.md)。
 
 ## 自定义
 

@@ -1,5 +1,5 @@
 /*
- * Host harness: runs slime_core on macOS and writes BMP frames.
+ * Host harness: runs slime_core on macOS or Linux and writes BMP frames.
  *
  *   host_sim frame <state> <t> <out.bmp> [dialog]  dialog text, "\\n" = second line
  *   host_sim sheet <out.bmp>              13 states, raw poses, 4-column contact sheet

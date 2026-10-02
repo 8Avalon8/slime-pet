@@ -5,3 +5,6 @@ sdkconfig.old
 host/host_sim
 host/cc_test
 host/out/
+host/slime_sim
+host/slime_sim.dSYM/
+host/slime_sim_*.bmp

@@ -113,6 +113,8 @@ It reads the same environment variables as the hook (`SLIME_LLM_URL` / `SLIME_LL
 
 When chatting, the slime knows the date, weekday and time of day, its own level and battery, the focus timer, whether the camera sees you, today's work and what each Claude session is doing, what you talked about earlier today and yesterday's diary. Asked about the weather, it looks up today and tomorrow on [wttr.in](https://wttr.in) (free, no key), placed by the computer's IP; set `SLIME_CITY=London` to pick the place, `SLIME_WEATHER=0` to turn it off.
 
+With a model that supports function calling (DeepSeek, OpenAI and other OpenAI-compatible APIs) it can also use tools (`bridge/slime_agent.py`): the weather in other cities, searching past chats, work and diaries, what a given day's work was, remembering or forgetting things you tell it ("remember I don't eat cilantro"), reminders ("remind me to drink water in 20 minutes", said on screen when due), and the pet itself (focus timer, volume, brightness, music). At most two rounds of tool calls per answer; the calls of a round run in parallel, waiting at most 6 seconds; an endpoint without tools falls back to a plain answer. `SLIME_TOOLS=0` turns tools off; `python3 bridge/slime_agent.py tools` prints the definitions sent to the model. Facts and reminders live in `bridge/.slime/facts.json` and `reminders.json`.
+
 Voice chat also needs a speech-to-text endpoint (OpenAI-compatible `/audio/transcriptions`). It defaults to `SLIME_LLM_URL` and `SLIME_LLM_KEY` with model `whisper-1`, so OpenAI works without extra settings. LM Studio has no speech to text; locally, a compatible server such as [Speaches](https://github.com/speaches-ai/speaches) works:
 
 ```bash

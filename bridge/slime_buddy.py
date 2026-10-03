@@ -7,11 +7,12 @@ Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
     when Claude has waited for your approval too long, commands keep failing, you are still
     working deep in the night or for hours on end, a big day passes a milestone, or (camera)
     you come back after a while. Quiet hours, the focus timer and the demo keep it silent.
+  * Reminders the slime was asked to set (slime_agent.py) are said when due.
   * Diary: after midnight it writes yesterday's diary to bridge/.slime/diary/YYYY-MM-DD.md.
   * Voice chat: hold the AI key on the pet and speak; the pet records, this process fetches the
     recording, turns it into text (SLIME_STT_*), answers in the slime's voice with what it
     knows (date and weekday, its own status, today's work, what each Claude session is doing, the last
-    few exchanges, yesterday's diary, the weather when asked) and answers the question itself, and
+    few exchanges, yesterday's diary, the weather when asked), can call tools (slime_agent.py), and
     the pet shows the answer.
 
 Usage:
@@ -28,10 +29,9 @@ import os
 import socket
 import sys
 import time
-import urllib.parse
-import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import slime_agent as agent  # noqa: E402
 import slime_brain as brain  # noqa: E402
 
 POLL_S = 1.5              # device status (voice needs to feel responsive)
@@ -161,51 +161,13 @@ def memories(events, now):
     return out
 
 
-# ---------------- weather (wttr.in: free, no key) ----------------
-
 WEATHER_WORDS = ("天气", "下雨", "下雪", "气温", "温度", "冷不冷", "热不热", "多少度", "带伞", "穿什么", "穿啥",
                  "晴", "刮风", "雾霾", "weather", "rain", "temperature", "umbrella")
-_weather = (0, None)
 
 
-def weather(timeout=4):
-    """Today's and tomorrow's weather where the computer is, from wttr.in (cached 30 minutes).
-    SLIME_CITY picks the place (default: guessed from the IP), SLIME_WEATHER=0 turns it off. None if unavailable."""
-    global _weather
-    if os.environ.get("SLIME_WEATHER", "1") == "0":
-        return None
-    if time.time() - _weather[0] < 1800:
-        return _weather[1]
-    got = None
-    try:
-        city = urllib.parse.quote(os.environ.get("SLIME_CITY", ""))
-        req = urllib.request.Request("https://wttr.in/%s?format=j1&lang=zh" % city, headers={"User-Agent": "curl/8"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            got = weather_text(json.load(r))
-    except Exception as e:  # offline, blocked, or the format changed: chat goes on without it
-        vlog("weather:", e)
-    _weather = (time.time(), got)
-    return got
-
-
-def weather_text(data):
-    def desc(d):
-        for k in ("lang_zh", "weatherDesc"):
-            if d.get(k):
-                return d[k][0].get("value", "").strip()
-        return ""
-
-    cur = data["current_condition"][0]
-    area = (data.get("nearest_area") or [{}])[0]
-    place = ((area.get("areaName") or [{}])[0].get("value", "") if area else "")
-    parts = ["%s现在%s，%s°C，体感 %s°C，湿度 %s%%" % (place + "：" if place else "", desc(cur), cur["temp_C"],
-                                                cur["FeelsLikeC"], cur["humidity"])]
-    for name, day in zip(("今天", "明天"), data.get("weather", [])):
-        hourly = day.get("hourly") or []
-        rain = max((int(h.get("chanceofrain", 0)) for h in hourly), default=0)
-        mid = desc(hourly[len(hourly) // 2]) if hourly else ""
-        parts.append("%s%s，%s~%s°C，降雨概率最高 %d%%" % (name, mid, day["mintempC"], day["maxtempC"], rain))
-    return "；".join(parts) + "。"
+def weather():
+    """Weather where the computer is (see slime_agent.fetch_weather)."""
+    return agent.fetch_weather()
 
 
 def context(now=None, st=None, question=""):
@@ -218,13 +180,16 @@ def context(now=None, st=None, question=""):
     lines += device_facts(st)
     if any(w in question.lower() for w in WEATHER_WORDS):
         w = weather()
-        lines.append("天气：" + w if w else "天气：查不到（没联网或服务不可用），别编天气。")
+        lines.append("这里的天气：" + w if w else "天气：查不到（没联网或服务不可用），别编天气。")
     lines.append("主人今天和 Claude 的工作：完成 %d 轮任务，工具 %d 次，失败 %d 次，发了 %d 条指令。"
                  % (s["tasks"], s["tools"], s["fails"], s["prompts"]))
     if s["top"]:
         lines.append("今天用得最多的工具：" + "、".join("%s×%d" % kv for kv in s["top"]))
     lines += sessions(week, now)
     lines += memories(week, now)
+    known = agent.facts()
+    if known:
+        lines.append("主人让你记住的事：" + "；".join(f["d"] for f in known[-20:]))
     return week, "\n".join(lines)
 
 
@@ -359,6 +324,9 @@ CHAT_RULES = (
     "2. 时间、日期、星期、天气、你的状态以下面的信息为准；不知道就说不知道，别瞎编。\n"
     "3. 问题和写代码无关时，别扯主人的工作，也别夸主人；性格只影响语气，不改变回答的内容。\n"
     "4. 主人闲聊或说心情时，自然接话，可以用上下面的信息和记忆。\n"
+    "5. 你有工具：别处的天气、翻记忆和日记、某天的工作、记住/忘掉主人的事、定提醒、操作你自己"
+    "（专注计时、音量、亮度、音乐）。下面的信息够用或者是常识问题就直接答，不调工具；"
+    "主人让你做事就调工具去做，做完简短说结果。\n"
     "你知道的事：\n")
 
 
@@ -369,12 +337,13 @@ def answer(question, now=None, st=None):
     _, persona = brain.personality(week)
     history = [e for e in week if e.get("ev") in ("heard", "reply") and now - e["t"] < 1800][-6:]
     system = (persona + CHAT_RULES + ctx
-              + "\n用不超过 60 个字回答，可以是两三句短句。" + brain.JSON_TAIL)
+              + "\n最后用不超过 60 个字回答，可以是两三句短句。" + brain.JSON_TAIL)
     user = ""
     for e in history:
         user += ("主人：" if e["ev"] == "heard" else "你：") + e.get("d", "") + "\n"
     user += "主人：" + question
-    return brain.speak(system, user, max_chars=64, max_tokens=300, temperature=0.6)
+    return brain.speak(system, user, max_chars=64, max_tokens=300, temperature=0.6,
+                       first=lambda messages: agent.run(messages, max_tokens=300, temperature=0.6, log=log))
 
 
 def send_line(line, tries=3):
@@ -535,6 +504,15 @@ def run():
                     log("said (%s): %s" % (rule, text))
                 except Exception as e:
                     log("could not say:", e)
+        for r in agent.due_reminders(now):
+            try:
+                send_line("talk happy %s\n" % (tr("提醒：", "Reminder: ") + r["d"]))
+                brain.journal_append("say", r["d"])
+                last_line = time.time()
+                log("reminder:", r["d"])
+            except Exception as e:  # offline: say it late rather than never
+                log("could not remind (%s); trying again" % e)
+                agent.set_reminder(1, r["d"])
         if now >= next_diary:
             next_diary = now + 600
             day = diary_due(now)

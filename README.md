@@ -113,6 +113,8 @@ python3 bridge/slime_brain.py traits       # 看看它现在养成了什么性�
 
 聊天时史莱姆知道：日期、星期和时段，自己的等级和电量，专注计时，摄像头有没有看到你，今天的工作和各个 Claude 会话的状态，今天早些时候聊过的话和昨天的日记。问到天气时会去 [wttr.in](https://wttr.in)（免费、不用 Key）查今明两天的天气，地点按电脑的 IP 猜，可用 `SLIME_CITY=Shanghai` 指定，`SLIME_WEATHER=0` 关闭。
 
+模型支持函数调用时（DeepSeek、OpenAI 等 OpenAI 兼容接口），它还能自己调用工具（`bridge/slime_agent.py`）：查别的城市的天气，翻过去的聊天、工作记录和日记，看某一天干了什么，长期记住或忘掉你告诉它的事（“记住我不吃香菜”），定提醒（“二十分钟后提醒我喝水”，到点在屏幕上说），操作设备本身（开始/结束专注计时、音量、亮度、背景音乐）。每次回答最多两轮工具调用，同一轮的工具并行执行、每轮最多等 6 秒；接口不支持工具时自动退回普通回答。`SLIME_TOOLS=0` 关闭工具，`python3 bridge/slime_agent.py tools` 查看发给模型的工具定义。记住的事和提醒存在 `bridge/.slime/facts.json`、`reminders.json`。
+
 语音对话还需要一个语音转文字接口（OpenAI 兼容的 `/audio/transcriptions`）。默认用 `SLIME_LLM_URL` 和 `SLIME_LLM_KEY`、模型 `whisper-1`，所以直接用 OpenAI 时不用另外配置；LM Studio 不提供语音转文字，本地可以用 [Speaches](https://github.com/speaches-ai/speaches) 这类兼容服务：
 
 ```bash

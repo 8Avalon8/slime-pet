@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "sfxr.h"
 
 /*
  * ES8311 microphone + speaker, one task on core 0.
@@ -52,14 +51,9 @@ void audio_play_bgm(bgm_t b);
 void audio_stop_bgm(void);
 /* Night mode: drops every effect and tune until unmuted (the sound setting is left alone). */
 void audio_set_muted(bool muted);
-/* sfxr sound replacing built-in effect `slot` (an sfx_t); NULL restores the original. Persisted. */
-bool audio_set_custom(int slot, const sfxr_params_t *p);
-bool audio_has_custom(int slot);
 /* Effect names used by the panel and the "sfx <name>" command. */
 const char *audio_sfx_name(int s);
 int audio_sfx_find(const char *name); /* -1 if unknown */
-/* Plays an sfxr sound once (panel preview), interrupting nothing but the background tune. */
-void audio_preview(const sfxr_params_t *p);
 /* Ignore the mic for a while: the motor, a touch or a bump is not a clap. */
 void audio_hold_off(uint32_t ms);
 void audio_get(audio_state_t *out);

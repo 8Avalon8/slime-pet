@@ -64,61 +64,6 @@ static esp_err_t send_json(httpd_req_t *req, const char *json)
     return httpd_resp_sendstr(req, json);
 }
 
-/* Custom sfxr effects: GET lists which effects are replaced; POST
- * {"slot":"<effect>|preview","params":{jsfxr JSON}} sets/previews, {"slot":"<effect>","reset":true} restores. */
-static esp_err_t h_sfxr_get(httpd_req_t *req)
-{
-    char js[512];
-    int n = snprintf(js, sizeof js, "{\"slots\":[");
-    for (int i = 0; i < SFX_COUNT && n < (int)sizeof js - 48; i++)
-        n += snprintf(js + n, sizeof js - n, "%s{\"name\":\"%s\",\"custom\":%s}", i ? "," : "", audio_sfx_name(i),
-                      audio_has_custom(i) ? "true" : "false");
-    snprintf(js + n, sizeof js - n, "]}");
-    return send_json(req, js);
-}
-
-static esp_err_t h_sfxr_post(httpd_req_t *req)
-{
-    char body[BODY_MAX * 2];
-    if (read_body(req, body, sizeof body) != ESP_OK) return ESP_FAIL;
-    cJSON *o = cJSON_Parse(body);
-    const cJSON *slot = cJSON_GetObjectItem(o, "slot");
-    if (!cJSON_IsString(slot)) {
-        cJSON_Delete(o);
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "need slot");
-    }
-    const bool preview = !strcmp(slot->valuestring, "preview");
-    const int idx = preview ? -1 : audio_sfx_find(slot->valuestring);
-    if (!preview && idx < 0) {
-        cJSON_Delete(o);
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown slot");
-    }
-    bool ok;
-    if (!preview && cJSON_IsTrue(cJSON_GetObjectItem(o, "reset"))) {
-        ok = audio_set_custom(idx, NULL);
-    } else {
-        const cJSON *ps = cJSON_GetObjectItem(o, "params");
-        if (!cJSON_IsObject(ps)) ps = o; /* the jsfxr JSON itself is accepted too */
-        sfxr_params_t p;
-        sfxr_defaults(&p);
-        const cJSON *v = cJSON_GetObjectItem(ps, "wave_type");
-        if (cJSON_IsNumber(v)) p.wave_type = v->valueint;
-#define SFXR_GET(name, lo, hi) if ((v = cJSON_GetObjectItem(ps, #name)) && cJSON_IsNumber(v)) p.name = (float)v->valuedouble;
-        SFXR_FIELDS(SFXR_GET)
-#undef SFXR_GET
-        sfxr_sanitize(&p);
-        if (preview) {
-            audio_preview(&p);
-            ok = true;
-        } else {
-            ok = audio_set_custom(idx, &p);
-            if (ok) audio_play((sfx_t)idx);
-        }
-    }
-    cJSON_Delete(o);
-    return ok ? send_json(req, "{\"ok\":true}") : httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "save failed");
-}
-
 /* Nod/shake tuning: GET /api/head?since=<ms> -> recent head samples. */
 static esp_err_t h_head(httpd_req_t *req)
 {
@@ -383,11 +328,9 @@ esp_err_t web_start(void)
         {.uri = "/api/cmd", .method = HTTP_POST, .handler = h_cmd},
         {.uri = "/api/wifi", .method = HTTP_POST, .handler = h_wifi},
         {.uri = "/api/cam.bmp", .method = HTTP_GET, .handler = h_cam},
-        {.uri = "/api/sfxr", .method = HTTP_GET, .handler = h_sfxr_get},
         {.uri = "/api/head", .method = HTTP_GET, .handler = h_head},
         {.uri = "/api/voice.wav", .method = HTTP_GET, .handler = h_voice},
         {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_http_handler},
-        {.uri = "/api/sfxr", .method = HTTP_POST, .handler = h_sfxr_post},
         {.uri = "/api/ai", .method = HTTP_GET, .handler = h_ai_get},
         {.uri = "/api/ai", .method = HTTP_POST, .handler = h_ai_post},
     };

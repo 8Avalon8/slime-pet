@@ -22,7 +22,7 @@ slime_brain.py (SLIME_LLM_URL / SLIME_LLM_MODEL / SLIME_LLM_KEY). With a cloud A
 summary leaves this computer. Comments follow the pet's language setting (SLIME_LANG=zh|en overrides).
 
 SLIME_HOST=<host>[:port] sends everything there instead (no cache, no USB fallback), e.g. to
-the simulator or bridge/fake_device.py: SLIME_HOST=127.0.0.1:8080.
+the simulator: SLIME_HOST=127.0.0.1:8080.
 
 Manual test, without Claude Code:
     python3 slime_hook.py --send ask "Bash: rm -rf build"
@@ -56,7 +56,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PORT_LOCK = os.path.join(HERE, ".port.lock")
 ADDR_CACHE = os.path.join(HERE, ".device_addr")  # "<ip>" or "fail <unix time>"
 HOSTNAME = "slime.local"
-SLIME_HOST = os.environ.get("SLIME_HOST", "")  # testing without the board: simulator or fake_device.py
+SLIME_HOST = os.environ.get("SLIME_HOST", "")  # testing without the board: the simulator
 WIFI_RETRY_S = 60  # after a failed lookup, skip Wi-Fi this long
 # TinyUSB's default serial "123456" -> /dev/cu.usbmodem1234561 (macOS),
 # /dev/serial/by-id/usb-Espressif_..._123456-if00 (Linux). Matching it also keeps us away

@@ -9,7 +9,7 @@
 
 #define IDLE_CLOSE_S 30
 
-enum { I_LANG, I_HELP, I_DEMO, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
+enum { I_LANG, I_HELP, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
        I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_AICOMMENT, I_VOICE, I_WAKE, I_COUNT };
 
 static const char *const LANG_OPTS[] = {"中文", "English"};
@@ -17,7 +17,6 @@ static const char *const LANG_OPTS[] = {"中文", "English"};
 static sl_menu_item_t s_items[I_COUNT] = {
     [I_LANG] = {"语言 / Language", SL_MI_CHOICE, 0, 0, SL_LANG_COUNT - 1, 1, .opts = LANG_OPTS},
     [I_HELP] = {"玩法说明", SL_MI_ACTION},
-    [I_DEMO] = {"功能演示", SL_MI_ACTION},
     [I_FOCUS] = {"开始 / 结束专注", SL_MI_ACTION},
     [I_FOCUSMIN] = {"专注时长", SL_MI_NUM, 0, 5, 90, 5, "分"},
     [I_NIGHTS] = {"勿扰开始", SL_MI_NUM, 0, 0, 23, 1, "点"},
@@ -52,7 +51,6 @@ static sl_menu_item_t s_items[I_COUNT] = {
 static const char *const EN[I_COUNT][2] = {
     [I_LANG] = {"Language / 语言"},
     [I_HELP] = {"How to play"},
-    [I_DEMO] = {"Feature demo"},
     [I_FOCUS] = {"Start / stop focus"},
     [I_FOCUSMIN] = {"Focus length", "m"},
     [I_NIGHTS] = {"Quiet from", ":00"},
@@ -204,7 +202,6 @@ bool sui_tap(int x, int y, double now)
         else if (changed == I_BGMPLAY) s_action = SUI_ACT_BGM;
         else if (changed == I_FOCUS) s_action = SUI_ACT_FOCUS;
         else if (changed == I_HELP) s_action = SUI_ACT_HELP;
-        else if (changed == I_DEMO) s_action = SUI_ACT_DEMO;
         sui_close();
         return true;
     default:

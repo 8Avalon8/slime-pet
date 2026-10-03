@@ -15,7 +15,6 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "sensors.h"
-#include "sfxr.h"
 #include "wake.h"
 
 static const char *TAG = "audio";
@@ -290,57 +289,6 @@ static bool synth_render(synth_t *y, int16_t *out)
     return beat;
 }
 
-/* ---------------- custom sfxr effects ---------------- */
-
-/* A pasted sfxr sound can replace any built-in effect; slot SFX_COUNT is the panel preview. */
-#define SLOT_PREVIEW SFX_COUNT
-#define SFXR_LEVEL 0.5f /* sfxr runs hotter than the jingles */
-static sfxr_params_t s_custom[SFX_COUNT + 1];
-static bool s_has_custom[SFX_COUNT + 1];
-
-typedef struct {
-    sfxr_t *eng; /* PSRAM: the phaser buffer alone is 4 KB */
-    float acc, prev, cur;
-} sfxr_voice_t;
-
-static void custom_key(int slot, char *key) { snprintf(key, 8, "sx%d", slot); }
-
-static void custom_load(void)
-{
-    nvs_handle_t h;
-    if (nvs_open("slime", NVS_READONLY, &h) != ESP_OK) return;
-    for (int i = 0; i < SFX_COUNT; i++) {
-        char key[8];
-        custom_key(i, key);
-        sfxr_params_t p;
-        size_t len = sizeof p;
-        if (nvs_get_blob(h, key, &p, &len) == ESP_OK && len == sizeof p) {
-            sfxr_sanitize(&p);
-            s_custom[i] = p;
-            s_has_custom[i] = true;
-        }
-    }
-    nvs_close(h);
-}
-
-/* Renders one block from the sfxr engine, resampled 44.1 -> 48 kHz; false once it has ended. */
-static bool sfxr_render(sfxr_voice_t *v, int16_t *out)
-{
-    const float step = (float)SFXR_RATE / RATE;
-    for (int i = 0; i < BLOCK_FRAMES; i++) {
-        v->acc += step;
-        while (v->acc >= 1) {
-            v->acc -= 1;
-            v->prev = v->cur;
-            v->cur = sfxr_next(v->eng);
-        }
-        const float x = (v->prev + (v->cur - v->prev) * v->acc) * SFXR_LEVEL;
-        const int16_t s = (int16_t)(x * 32767);
-        out[2 * i] = out[2 * i + 1] = s;
-    }
-    return v->eng->playing || v->cur != 0;
-}
-
 /* ---------------- task ---------------- */
 
 static QueueHandle_t s_q;
@@ -462,7 +410,6 @@ static void audio_task(void *arg)
     }
     mic_t m = {.floor = -60, .prev = -90, .slow = -60};
     synth_t y = {0};
-    sfxr_voice_t fx = {.eng = heap_caps_calloc(1, sizeof(sfxr_t), MALLOC_CAP_SPIRAM)};
     static const float BGM_GAIN = 0.55f; /* humming, not a concert */
     uint32_t gen_seen = UINT32_MAX, play_end = 0;
     int tail = 0;
@@ -479,30 +426,12 @@ static void audio_task(void *arg)
             if (req < BGM_COUNT && s_sound_on && (!synth_active(&y) || y.bgm)) synth_load(&y, &BGM[req], BGM_GAIN, true);
             else if (req >= BGM_COUNT && y.bgm) synth_stop(&y);
         }
-        const bool fx_on = fx.eng && fx.eng->playing;
-        if ((!synth_active(&y) || y.bgm) && !fx_on) { /* effects cut the background tune short */
+        if (!synth_active(&y) || y.bgm) { /* effects cut the background tune short */
             int s;
-            if (xQueueReceive(s_q, &s, 0) == pdTRUE && s_sound_on) {
-                sfxr_params_t p;
-                bool custom = false;
-                portENTER_CRITICAL(&s_lock);
-                if (s >= 0 && s <= SLOT_PREVIEW && s_has_custom[s]) {
-                    p = s_custom[s];
-                    custom = true;
-                }
-                portEXIT_CRITICAL(&s_lock);
-                if (custom && fx.eng) {
-                    synth_stop(&y);
-                    sfxr_start(fx.eng, &p, esp_random());
-                    fx.acc = fx.prev = fx.cur = 0;
-                } else if (s < SFX_COUNT) {
-                    synth_load(&y, &SOUNDS[s], 1.0f, false);
-                }
-            }
+            if (xQueueReceive(s_q, &s, 0) == pdTRUE && s_sound_on && s >= 0 && s < SFX_COUNT) synth_load(&y, &SOUNDS[s], 1.0f, false);
         }
         if (y.bgm && !s_sound_on) synth_stop(&y);
-        if (!s_sound_on && fx.eng) fx.eng->playing = false;
-        const bool playing = synth_active(&y) || (fx.eng && fx.eng->playing) || tail > 0;
+        const bool playing = synth_active(&y) || tail > 0;
         const bool rec = s_rec_on;
         const bool listen = s_mic_on || rec;
         if (!listen && !playing) {
@@ -538,10 +467,7 @@ static void audio_task(void *arg)
             }
         }
         if (playing) {
-            if (fx.eng && fx.eng->playing) {
-                sfxr_render(&fx, out);
-                tail = 4;
-            } else if (synth_active(&y)) {
+            if (synth_active(&y)) {
                 if (synth_render(&y, out) && y.bgm && s_dance) sensors_post(SEV_BEAT, 0, 7);
                 tail = 4; /* a few blocks of silence flush the DMA ring */
             } else {
@@ -618,7 +544,6 @@ const int16_t *audio_rec_take(uint32_t seq, size_t *samples)
 
 void audio_start(void)
 {
-    custom_load();
     s_q = xQueueCreate(4, sizeof(int));
     if (!s_q || xTaskCreatePinnedToCore(audio_task, "audio", 4096, NULL, 4, NULL, 0) != pdPASS) {
         ESP_LOGW(TAG, "audio task");
@@ -656,29 +581,6 @@ void audio_set_muted(bool muted)
     if (muted) s_bgm_req = BGM_COUNT;
 }
 
-bool audio_set_custom(int slot, const sfxr_params_t *p)
-{
-    if (slot < 0 || slot > SLOT_PREVIEW) return false;
-    sfxr_params_t q;
-    if (p) {
-        q = *p;
-        sfxr_sanitize(&q);
-    }
-    portENTER_CRITICAL(&s_lock);
-    s_has_custom[slot] = p != NULL;
-    if (p) s_custom[slot] = q;
-    portEXIT_CRITICAL(&s_lock);
-    if (slot == SLOT_PREVIEW) return true;
-    nvs_handle_t h;
-    if (nvs_open("slime", NVS_READWRITE, &h) != ESP_OK) return false;
-    char key[8];
-    custom_key(slot, key);
-    const esp_err_t e = p ? nvs_set_blob(h, key, &q, sizeof q) : nvs_erase_key(h, key);
-    const bool ok = (e == ESP_OK || e == ESP_ERR_NVS_NOT_FOUND) && nvs_commit(h) == ESP_OK;
-    nvs_close(h);
-    return ok;
-}
-
 static const char *const SFX_NAMES[SFX_COUNT] = {"levelup", "done", "hurt", "ask", "poke", "greet", "dizzy", "startle",
                                                  "sleep", "wake", "hello", "blip", "boot", "sulk", "shy"};
 
@@ -689,16 +591,6 @@ int audio_sfx_find(const char *name)
     for (int i = 0; i < SFX_COUNT; i++)
         if (!strcmp(name, SFX_NAMES[i])) return i;
     return -1;
-}
-
-bool audio_has_custom(int slot) { return slot >= 0 && slot < SFX_COUNT && s_has_custom[slot]; }
-
-void audio_preview(const sfxr_params_t *p)
-{
-    if (!s_q || !s_sound_on) return;
-    audio_set_custom(SLOT_PREVIEW, p);
-    const int slot = SLOT_PREVIEW;
-    xQueueSend(s_q, &slot, 0);
 }
 
 void audio_hold_off(uint32_t ms) { s_hold_until = ms_now() + ms; }

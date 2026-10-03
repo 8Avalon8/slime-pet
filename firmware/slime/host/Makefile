@@ -8,7 +8,7 @@ all: host_sim cc_test
 # ---- slime_sim: the real firmware (main/) on top of sim/, the stand-in for ESP-IDF and the board ----
 MAIN := ../main
 SIM_SRCS := sim/sim_main.c sim/sim_idf.c sim/sim_drivers.c $(MAIN)/main.c $(MAIN)/config.c $(MAIN)/inbox.c \
-	$(MAIN)/cc_track.c $(MAIN)/settings_ui.c $(MAIN)/web.c $(MAIN)/sfxr.c $(filter-out host_main.c,$(SRCS))
+	$(MAIN)/cc_track.c $(MAIN)/settings_ui.c $(MAIN)/web.c $(filter-out host_main.c,$(SRCS))
 SIM_CFLAGS := -O2 -g -std=gnu11 -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE -pthread -Wall -Wno-unused-parameter \
 	-Wno-missing-field-initializers -Wno-unused-function -Wno-format-truncation -Wno-unknown-warning-option \
 	-Isim -Isim/idf -I$(MAIN) -I$(CORE)/include

@@ -26,7 +26,7 @@ static const char *TAG = "sim";
 
 static const char *const SFX_NAMES[SFX_COUNT] = {"levelup", "done", "hurt", "ask", "poke", "greet", "dizzy", "startle",
                                                  "sleep", "wake", "hello", "blip", "boot", "sulk", "shy"};
-static bool s_sound = true, s_muted, s_mic = true, s_custom[SFX_COUNT];
+static bool s_sound = true, s_muted, s_mic = true;
 
 void audio_start(void) {}
 void audio_configure(bool mic, uint8_t clap_sens, bool dance, bool sound, uint8_t volume)
@@ -36,7 +36,7 @@ void audio_configure(bool mic, uint8_t clap_sens, bool dance, bool sound, uint8_
 }
 void audio_play(sfx_t s)
 {
-    if (s_sound && !s_muted && s != SFX_BLIP) ESP_LOGI(TAG, "sound: %s%s", audio_sfx_name(s), s_custom[s] ? " (custom)" : "");
+    if (s_sound && !s_muted && s != SFX_BLIP) ESP_LOGI(TAG, "sound: %s", audio_sfx_name(s));
 }
 void audio_play_bgm(bgm_t b)
 {
@@ -44,13 +44,6 @@ void audio_play_bgm(bgm_t b)
 }
 void audio_stop_bgm(void) {}
 void audio_set_muted(bool muted) { s_muted = muted; }
-bool audio_set_custom(int slot, const sfxr_params_t *p)
-{
-    if (slot < 0 || slot >= SFX_COUNT) return false;
-    s_custom[slot] = p != NULL;
-    return true;
-}
-bool audio_has_custom(int slot) { return slot >= 0 && slot < SFX_COUNT && s_custom[slot]; }
 const char *audio_sfx_name(int s) { return s >= 0 && s < SFX_COUNT ? SFX_NAMES[s] : "?"; }
 int audio_sfx_find(const char *name)
 {
@@ -58,7 +51,6 @@ int audio_sfx_find(const char *name)
         if (!strcmp(name, SFX_NAMES[i])) return i;
     return -1;
 }
-void audio_preview(const sfxr_params_t *p) { ESP_LOGI(TAG, "sound: sfxr preview"); }
 void audio_hold_off(uint32_t ms) {}
 void audio_get(audio_state_t *out) { *out = (audio_state_t){.ok = true, .mic = s_mic, .db = -60, .floor = -60}; }
 

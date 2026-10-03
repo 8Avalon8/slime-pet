@@ -1653,8 +1653,8 @@ void app_main(void)
             vision_enable(s_b.cfg.camera);
             static bool greeted, both_seen;
             const bool both = s_b.cfg.camera && s_b.cfg.face && s_b.cfg.gesture;
-            if (both && !both_seen && greeted) { /* just switched on: allowed, but worth a word */
-                snprintf(s_b.notice, sizeof s_b.notice, "%s", SL_TR("人脸和手势一起开有点吃力，\n建议只留一个哦", "Faces and gestures together are heavy.\nBetter keep just one"));
+            if (both && !both_seen && greeted) { /* just switched on: vision.cpp keeps only the gesture models */
+                snprintf(s_b.notice, sizeof s_b.notice, "%s", SL_TR("内存只够开一个：先认手势，\n人脸检测等手势关掉再用", "Memory fits only one: gestures first.\nFaces resume when gestures are off"));
                 s_b.notice_until = now + 10;
             }
             both_seen = both;

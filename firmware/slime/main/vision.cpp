@@ -42,6 +42,12 @@ static const char *TAG = "vision";
 #define GESTURE_STREAK 2       /* this many analysed frames in a row must agree */
 #define GESTURE_REARM_MS 800   /* the hand has to go away (or relax) this long before the same gesture counts again */
 
+/* PSRAM each model needs free before it is loaded, with a reserve for voice recordings and spoken
+ * answers. Measured: the face model takes 0.3 MB, the two hand models with their picture 1.2 MB,
+ * and with the camera running about 1.4 MB is free: there is no room for both. */
+#define FACE_NEED (450 * 1024)
+#define GESTURE_NEED (1350 * 1024)
+
 #define HAND_SCALE 0.375f  /* 720x1280 (rotated) -> 270x480: the classifier needs the hand at a decent size */
 #define FACE_SCALE 0.25f   /* 720x1280 (rotated) -> 180x320 for the detector */
 #define TINY_SCALE 0.125f /* -> 90x160 grey for frame differencing (1/16 gives odd widths) */
@@ -218,14 +224,28 @@ static void sync_models(ctx_t *c)
         s_st.gesture = VG_NONE;
         portEXIT_CRITICAL(&s_lock);
     }
-    if ((face && !c->model) || (gesture && !c->hand)) {
+    /* Both switched on does not fit: gestures win (they are the commands) and faces wait until
+     * gestures are switched off again. A model that does not fit is simply not loaded. */
+    if (gesture && !c->hand && c->model && heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < GESTURE_NEED) {
+        delete c->model;
+        c->model = NULL;
+        c->roi_ms = 0;
+        portENTER_CRITICAL(&s_lock);
+        s_st.face = s_st.kp_ok = false;
+        s_st.faces = 0;
+        portEXIT_CRITICAL(&s_lock);
+    }
+    const size_t room = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const bool load_hand = gesture && !c->hand && room >= GESTURE_NEED;
+    const bool load_face = face && !c->model && room >= FACE_NEED + (load_hand ? GESTURE_NEED : 0);
+    if (load_face || load_hand) {
         /* as in wake.c: the loaders' many small allocations must not land in the scarce internal RAM */
         heap_caps_malloc_extmem_enable(0);
-        if (face && !c->model) c->model = new HumanFaceDetect(static_cast<HumanFaceDetect::model_type_t>(CONFIG_DEFAULT_HUMAN_FACE_DETECT_MODEL), false);
-        if (gesture && !c->hand) {
+        if (load_hand) {
             c->hand = new HandDetect(HandDetect::ESPDET_PICO_224_224_HAND, false);
             c->gesture = new HandGestureCls(HandGestureCls::MOBILENETV2_0_5_S8_V1, false);
         }
+        if (load_face) c->model = new HumanFaceDetect(static_cast<HumanFaceDetect::model_type_t>(CONFIG_DEFAULT_HUMAN_FACE_DETECT_MODEL), false);
         heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
         ESP_LOGI(TAG, "models: face %s, gestures %s; free internal %u KB, PSRAM %u KB", c->model ? "on" : "off", c->hand ? "on" : "off",
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));

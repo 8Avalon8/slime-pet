@@ -44,7 +44,7 @@ typedef struct {
     /* v11 */
     bool speak;          /* read voice answers aloud (the bridge synthesizes them, see audio_speak) */
     uint8_t speak_pitch; /* 80-150 %: the bridge raises (or lowers) the synthesized voice by this much */
-    /* v12: what the camera looks for. Each has its own model, loaded only while switched on; both at once is heavy */
+    /* v12: what the camera looks for. Each has its own model, loaded only while switched on; both do not fit, gestures win */
     bool face;    /* faces: eye contact, presence, nod and shake, the sitting reminder */
     bool gesture; /* hand gestures as commands: thumb up/down, open palm, OK, "call me" */
 } slime_cfg_t;

@@ -271,6 +271,7 @@ typedef struct {
     double slide_until; /* "whoa, sliding" message */
     char notice[96];    /* short-lived message for calm states (Wi-Fi joined, ...) */
     double notice_until;
+    double cam_stuck_since, cam_warn_next; /* camera plugged in and switched on, but not coming up */
     /* camera */
     double last_face, face_since; /* face_since: start of the current sitting session, 0 = none */
     double close_since, close_cool, last_sit_nag, last_wait_nudge;
@@ -1010,10 +1011,38 @@ static void maybe_hum(brain_t *b, const sl_anim_t *a, cc_status_t cs, double now
 }
 
 /* Camera: gaze, presence, too-close, sitting reminder, and nudges while Claude waits for an absent you. */
+#ifndef CAM_STUCK_S       /* the simulator's tests shorten it */
+#define CAM_STUCK_S 40    /* a camera that works is up within seconds, hot-plugged or at boot */
+#endif
+#define CAM_REMIND_S 1800 /* say it again every half hour while it stays down */
+
+/* The camera module is in its slot and switched on, yet it does not start (after some restarts
+ * the sensor delivers no picture, and the retries then fail for good): the slime cannot see
+ * and should say so instead of silently ignoring faces. A restart brings it back. */
+static void camera_watch(brain_t *b, sl_anim_t *a, const vision_state_t *vs, double now)
+{
+    if (!(vs->enabled && vs->plugged && !vs->ok)) {
+        b->cam_stuck_since = 0;
+        b->cam_warn_next = 0; /* it came back (or was unplugged or switched off): start over next time */
+        return;
+    }
+    if (!b->cam_stuck_since) b->cam_stuck_since = now;
+    if (now - b->cam_stuck_since < CAM_STUCK_S || now < b->cam_warn_next) return;
+    if (!calm_state(a->state) || a->state == SL_SLEEP || b->listening || b->voice_wait_until) return; /* later */
+    b->cam_warn_next = now + CAM_REMIND_S;
+    const char *msg = SL_TR("摄像头没起来，我看不见……\n重启我一下试试？", "The camera won't start, I can't see...\nRestart me, maybe?");
+    react(b, a, SL_SULK, now, "%s", msg);
+    snprintf(b->notice, sizeof b->notice, "%s", msg); /* stays up after the reaction ends */
+    b->notice_until = now + 20;
+    sfx(a, SFX_SULK);
+    ESP_LOGW(TAG, "camera stuck: %d attempts, last error %s", vs->tries, esp_err_to_name(vs->err));
+}
+
 static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
 {
     vision_state_t vs;
     vision_get(&vs);
+    camera_watch(b, a, &vs, now);
     const bool seen = vs.ok && vs.face;
     if (seen) {
         if (now - b->last_motion > AWAY_S && calm_state(a->state) && a->state != SL_SLEEP) {

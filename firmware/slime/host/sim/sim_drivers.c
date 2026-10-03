@@ -187,9 +187,10 @@ void sim_mood_rgb(int mood, double t, uint8_t rgb[3])
     for (int i = 0; i < 3; i++) rgb[i] = (uint8_t)(C[m][i] * k * s_led_bright / 255);
 }
 
-/* ---------------- vision: no camera plugged in ---------------- */
+/* ---------------- vision: no camera plugged in ("camera_stuck 1" plugs in one that never starts) ---------------- */
 
 static bool s_cam_on;
+static volatile bool s_cam_stuck;
 int vision_head_trace(vision_head_sample_t *out, int max, uint32_t since) { return 0; }
 void vision_start(void) {}
 void vision_enable(bool on) { s_cam_on = on; }
@@ -197,6 +198,11 @@ void vision_get(vision_state_t *out)
 {
     *out = (vision_state_t){.enabled = s_cam_on, .err = ESP_ERR_NOT_FOUND, .slot_presence = -1, .slot_desc = -1,
                             .slot_owner = -1, .slot_type = -1};
+    if (s_cam_stuck) {
+        out->plugged = true;
+        out->tries = 9;
+        out->err = ESP_ERR_TIMEOUT;
+    }
 }
 bool vision_snapshot(uint8_t *dst, size_t cap, int *w, int *h) { return false; }
 void vision_set_preview(int mode) {}
@@ -290,6 +296,7 @@ const char *sim_help(void)
            "  shake | bump L|R | tilt G | facedown 0|1\n"
            "  clap | double_clap | beat | motion | light 0-100\n"
            "  nod | head_shake | wave L|R             camera gestures (events only; there is no picture)\n"
+           "  camera_stuck 0|1                        a camera module that is plugged in but never starts\n"
            "  battery SOC [MA] | battery off          fuel gauge; MA > 0 = charging\n"
            "  screenshot FILE.bmp\n"
            "other stdin lines go to the pet as if typed on its USB console (\"cc ...\", \"state think\", \"say happy hi\")\n";
@@ -340,6 +347,8 @@ bool sim_input(const char *cmd, char *err, size_t len)
         portENTER_CRITICAL(&s_sens_m);
         s_sens.light = (uint8_t)atoi(a1);
         portEXIT_CRITICAL(&s_sens_m);
+    } else if (!strcmp(w, "camera_stuck") && n >= 2) {
+        s_cam_stuck = held(a1);
     } else if (!strcmp(w, "nod")) {
         sensors_post(SEV_NOD, 0, 0);
     } else if (!strcmp(w, "head_shake")) {

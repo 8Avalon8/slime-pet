@@ -111,6 +111,8 @@ python3 bridge/slime_brain.py traits       # 看看它现在养成了什么性�
 
 环境变量和钩子一样（`SLIME_LLM_URL` / `SLIME_LLM_MODEL` / `SLIME_LLM_KEY`），记得在运行 buddy 的终端里也设置。日记存在 `bridge/.slime/diary/`。
 
+聊天时史莱姆知道：日期、星期和时段，自己的等级和电量，专注计时，摄像头有没有看到你，今天的工作和各个 Claude 会话的状态，今天早些时候聊过的话和昨天的日记。问到天气时会去 [wttr.in](https://wttr.in)（免费、不用 Key）查今明两天的天气，地点按电脑的 IP 猜，可用 `SLIME_CITY=Shanghai` 指定，`SLIME_WEATHER=0` 关闭。
+
 语音对话还需要一个语音转文字接口（OpenAI 兼容的 `/audio/transcriptions`）。默认用 `SLIME_LLM_URL` 和 `SLIME_LLM_KEY`、模型 `whisper-1`，所以直接用 OpenAI 时不用另外配置；LM Studio 不提供语音转文字，本地可以用 [Speaches](https://github.com/speaches-ai/speaches) 这类兼容服务：
 
 ```bash

@@ -111,6 +111,8 @@ python3 bridge/slime_brain.py traits       # the personality it has grown so far
 
 It reads the same environment variables as the hook (`SLIME_LLM_URL` / `SLIME_LLM_MODEL` / `SLIME_LLM_KEY`), so set them in the buddy's terminal too. Diaries go to `bridge/.slime/diary/`.
 
+When chatting, the slime knows the date, weekday and time of day, its own level and battery, the focus timer, whether the camera sees you, today's work and what each Claude session is doing, what you talked about earlier today and yesterday's diary. Asked about the weather, it looks up today and tomorrow on [wttr.in](https://wttr.in) (free, no key), placed by the computer's IP; set `SLIME_CITY=London` to pick the place, `SLIME_WEATHER=0` to turn it off.
+
 Voice chat also needs a speech-to-text endpoint (OpenAI-compatible `/audio/transcriptions`). It defaults to `SLIME_LLM_URL` and `SLIME_LLM_KEY` with model `whisper-1`, so OpenAI works without extra settings. LM Studio has no speech to text; locally, a compatible server such as [Speaches](https://github.com/speaches-ai/speaches) works:
 
 ```bash

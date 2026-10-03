@@ -27,10 +27,10 @@
 | **动作感应**（板载 IMU） | 歪过来会滑，使劲摇会晕，扣过来放就睡觉 |
 | **麦克风** | 拍两下手打招呼，跟着音乐节拍晃（会排除打字声） |
 | **摄像头**（可选模块） | 眼睛跟着你、歪头它也歪、点头开心、摇头委屈、盯着它会害羞、盖住镜头躲猫猫、坐太久提醒你起来，右上角小窗看它看到的画面。全部在设备上算，画面不出设备 |
-| **声音** | 三声部芯片音乐合成器（MML 乐谱 + 滑音），原创开机曲、提示音和两首背景音乐；内置 sfxr 音效引擎，可以在网页上随机生成、替换任意音效 |
+| **声音** | 三声部芯片音乐合成器（MML 乐谱 + 滑音），原创开机曲、提示音和两首背景音乐 |
 | **交互模块**（可选） | 6 颗彩灯随状态变化，按键、人体感应、光线 |
-| **日常** | 中英文界面、时钟和按时段问候、夜间勿扰、番茄钟、久坐提醒、玩法说明页、一键功能演示（录视频用） |
-| **网页面板** | 浏览器打开 `http://slime.local/`：实时状态、全部设置、音乐试听、自制音效、摄像头画面 |
+| **日常** | 中英文界面、时钟和按时段问候、夜间勿扰、番茄钟、久坐提醒、玩法说明页 |
+| **网页面板** | 浏览器打开 `http://slime.local/`：实时状态、全部设置、音乐试听、摄像头画面 |
 | **无线更新** | 双程序位 OTA，新固件跑满 30 秒才确认，崩溃会自动退回旧版 |
 
 ## 硬件
@@ -127,7 +127,7 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 | 目录 | 内容 |
 |---|---|
 | `firmware/slime/components/slime_core/` | 纯 C 渲染核心，不依赖 ESP-IDF：光栅库 `sg`、状态机和果冻弹簧 `slime_anim`、渲染 `slime_render`、文字 `slime_text`、菜单 `slime_menu` |
-| `firmware/slime/main/` | 设备端：主循环与"大脑"（`main.c`）、Claude Code 会话跟踪 `cc_track`、传感器 `sensors`、音频与合成器 `audio`/`sfxr`、乐谱 `tunes_original.h`、摄像头与人脸 `vision`、网络 `net`、网页面板 `web`、设置 `config`/`settings_ui`、无线更新 `ota`、崩溃记录 `bootlog` |
+| `firmware/slime/main/` | 设备端：主循环与"大脑"（`main.c`）、Claude Code 会话跟踪 `cc_track`、传感器 `sensors`、音频与合成器 `audio`、乐谱 `tunes_original.h`、摄像头与人脸 `vision`、网络 `net`、网页面板 `web`、设置 `config`/`settings_ui`、无线更新 `ota`、崩溃记录 `bootlog` |
 | `firmware/slime/host/` | 电脑端测试程序：用同一份渲染代码出图、测速、跑单元测试；固件模拟器 `slime_sim` |
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
@@ -147,12 +147,11 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 
 （出 PNG 用的是 macOS 的 `sips`；其他系统可以直接看 BMP。）
 
-**没有板子**：`make sim` 在电脑上跑真固件（窗口里能戳、摇、按键，Claude Code 钩子设 `SLIME_HOST=127.0.0.1:8080` 就能连上），`make simtest` 是端到端自动测试；只想测钩子可以用 `bridge/fake_device.py`。详见 [firmware/slime/host/README.md](firmware/slime/host/README.md)。
+**没有板子**：`make sim` 在电脑上跑真固件（窗口里能戳、摇、按键，Claude Code 钩子设 `SLIME_HOST=127.0.0.1:8080` 就能连上），`make simtest` 是端到端自动测试。详见 [firmware/slime/host/README.md](firmware/slime/host/README.md)。
 
 ## 自定义
 
 - **乐曲**：乐谱在 `main/tunes_original.h`，用 MML 写，语法见 `audio.c` 开头。想用自己的曲子，把同样的两张表放进 `main/tunes_local.h`：这个文件不进 git，存在时会替代原创曲目。
-- **音效**：网页面板「自制音效」区可以随机生成 sfxr 音效，或粘贴 [sfxr.me](https://sfxr.me/) 导出的 JSON，替换任意场景的音效。替换存在设备里，不用重新编译。
 - **文案和字体**：代码里出现的字会预先渲染成三种字号；另有一张 3,755 个常用字的扩展表（22 px），用来显示 AI 点评这类动态文字。改了代码里的中文字符串之后，要重新生成字形，需要 Pillow 和 [Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC)：
 
   ```bash
@@ -175,6 +174,6 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 
 ## 协议
 
-MIT，见 [LICENSE](LICENSE)。用到的第三方内容（Noto Sans SC 字形、sfxr、BSP 补丁）见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+MIT，见 [LICENSE](LICENSE)。用到的第三方内容（Noto Sans SC 字形、BSP 补丁）见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 这是一个爱好者项目，史莱姆是一个通用的复古 RPG 风格形象，与任何游戏公司无关，仓库里不含任何游戏的音乐或素材。

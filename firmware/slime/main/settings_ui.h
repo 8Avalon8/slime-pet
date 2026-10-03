@@ -19,6 +19,5 @@ bool sui_dirty(void);
 #define SUI_ACT_BGM 2
 #define SUI_ACT_FOCUS 3
 #define SUI_ACT_HELP 4
-#define SUI_ACT_DEMO 5
 /* An action picked in the menu (once), or -1. */
 int sui_take_action(void);

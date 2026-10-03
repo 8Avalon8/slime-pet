@@ -4,12 +4,11 @@
 
 ## 中文
 
-三种工具，从轻到重：
+两种工具，从轻到重：
 
 | 工具 | 跑的是什么 | 适合 |
 |---|---|---|
 | `host_sim` / `cc_test`（`make test`） | 渲染核心和 `cc_track` 协议 | 改形象、动画、协议解析 |
-| `bridge/fake_device.py` | 只模仿 HTTP 接口的 Python 假设备，不用编译 | 改 bridge 钩子、AI 点评、网页面板 |
 | `slime_sim`（`make sim`） | **真固件**：`main.c`、`web.c`、`config.c`、`settings_ui.c` 等原样编译，跑在一层假的 ESP-IDF 上 | 改"大脑"状态机、交互、设置菜单，端到端联调 |
 
 ### 模拟器 slime_sim
@@ -77,25 +76,13 @@ curl http://127.0.0.1:8080/sim/input       # 命令列表
 
 固件用了新的 IDF 函数时，模拟器会编译失败，在 `sim/idf/sim_idf.h` 加声明、在 `sim_idf.c` 加实现即可；新的硬件模块就在 `sim_drivers.c` 加替身。
 
-### 假设备 fake_device.py
-
-不用编译，只有 Python 标准库：
-
-```bash
-python3 bridge/fake_device.py              # 默认 127.0.0.1:8080
-SLIME_HOST=127.0.0.1:8080 python3 bridge/slime_hook.py --send ask "Bash: rm -rf build"
-```
-
-每收到一行就打印出来，并粗略显示史莱姆会进入什么状态。它只模仿协议，状态是简化版；要看真实反应用模拟器。
-
 ## English
 
-Three tools, lightest first:
+Two tools, lightest first:
 
 | Tool | What runs | Good for |
 |---|---|---|
 | `host_sim` / `cc_test` (`make test`) | the rendering core and the `cc_track` protocol | looks, animation, protocol parsing |
-| `bridge/fake_device.py` | a Python stand-in for the HTTP API, no build | the bridge hook, AI comments, the web panel |
 | `slime_sim` (`make sim`) | **the real firmware**: `main.c`, `web.c`, `config.c`, `settings_ui.c` and friends compiled unchanged on a fake ESP-IDF | the "brain", interactions, the settings menu, end-to-end runs |
 
 ```bash

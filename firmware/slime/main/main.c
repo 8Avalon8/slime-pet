@@ -283,12 +283,6 @@ typedef struct {
     bool handsfree;        /* started by the wake word: it ends by itself when you stop talking */
     double listen_t0;
     double voice_wait_until; /* 0 = not waiting */
-    /* demo: a scripted tour of every feature, for recording a video */
-    bool demo, demo_pip;
-    int demo_i; /* -1 = countdown */
-    int demo_minis; /* helper slimes the demo wants out */
-    double demo_t0;
-    char demo_msg[128];
     float tilt_ref;
     /* progress, persisted in NVS */
     int lv, exp;
@@ -325,8 +319,6 @@ static void progress_save(brain_t *b)
 
 static void focus_start(brain_t *b, sl_anim_t *a, double now);
 static void focus_stop(brain_t *b, sl_anim_t *a, double now);
-static void demo_start(brain_t *b, sl_anim_t *a, double now);
-static void demo_stop(brain_t *b, sl_anim_t *a, double now);
 
 /* Quiet hours (needs the clock; off until SNTP has synced). */
 static bool night_now(const brain_t *b)
@@ -466,7 +458,7 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
         char mood[12] = "";
         int off = 0;
         const char *rest = line + (talk ? 5 : 4);
-        if (sscanf(rest, "%11s %n", mood, &off) == 1 && off > 0 && (talk || b->cfg.ai_comment) && !b->demo) {
+        if (sscanf(rest, "%11s %n", mood, &off) == 1 && off > 0 && (talk || b->cfg.ai_comment)) {
             const char *text = rest + off;
             if (talk && b->voice_wait_until) {
                 b->voice_wait_until = 0;
@@ -497,14 +489,6 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
         else focus_stop(b, a, now);
         return;
     }
-    if (!strcmp(line, "demo")) {
-        demo_start(b, a, now);
-        return;
-    }
-    if (!strcmp(line, "demo stop")) {
-        demo_stop(b, a, now);
-        return;
-    }
     if (sscanf(line, "bgm %15s", name) == 1) {
         if (!strcmp(name, "stop")) audio_stop_bgm();
         else audio_play_bgm((bgm_t)(atoi(name) % BGM_COUNT));
@@ -516,14 +500,14 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
                 sl_anim_set_state(a, (sl_state_t)i, now);
                 b->manual_until = now + MANUAL_HOLD_S;
                 b->last_activity = now;
-                /* the panel's demo buttons double as a sound check */
-                static const int8_t DEMO_SFX[SL_STATE_COUNT] = {
+                /* the panel's state buttons double as a sound check */
+                static const int8_t STATE_SFX[SL_STATE_COUNT] = {
                     [SL_IDLE] = -1, [SL_GREET] = SFX_GREET, [SL_POKE_L] = SFX_POKE, [SL_POKE_R] = SFX_POKE,
                     [SL_DIZZY] = SFX_DIZZY, [SL_SLEEP] = SFX_SLEEP, [SL_THINK] = -1, [SL_WAIT] = SFX_ASK,
                     [SL_LEVELUP] = SFX_LEVELUP, [SL_HURT] = SFX_HURT, [SL_CHARGE] = SFX_DONE, [SL_MELT] = -1,
                     [SL_METAL] = SFX_HELLO, [SL_WORK] = -1, [SL_SULK] = SFX_SULK,
                 };
-                if (DEMO_SFX[i] >= 0) audio_play((sfx_t)DEMO_SFX[i]);
+                if (STATE_SFX[i] >= 0) audio_play((sfx_t)STATE_SFX[i]);
             }
         }
     }
@@ -574,10 +558,6 @@ static void compose_msg(const brain_t *b, const sl_anim_t *a, cc_status_t cs, co
     const int up = ota_progress();
     if (up >= 0) {
         snprintf(msg, len, SL_TR("正在无线更新固件…… %d%%\n请不要断电", "Updating firmware... %d%%\nPlease keep the power on"), up);
-        return;
-    }
-    if (b->demo) {
-        snprintf(msg, len, "%s", b->demo_msg);
         return;
     }
     if (a->t0 == b->react_t0 && b->react_msg[0]) {
@@ -841,7 +821,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"mic\":{\"ok\":%s,\"db\":%.1f,\"floor\":%.1f,\"claps\":%d},"
              "\"net\":{\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fails\":%d,\"reason\":%d},"
              "\"voice\":{\"on\":%s,\"seq\":%u,\"ready\":%s,\"rec\":%s},"
-             "\"heap\":{\"int\":%u,\"psram\":%u},\"boots\":%s,\"crash\":%s,\"fw\":%s,\"clock\":\"%s\",\"night\":%s,\"focus\":%d,\"rest\":%d,\"demo\":%s,"
+             "\"heap\":{\"int\":%u,\"psram\":%u},\"boots\":%s,\"crash\":%s,\"fw\":%s,\"clock\":\"%s\",\"night\":%s,\"focus\":%d,\"rest\":%d,"
              "\"cam\":{\"on\":%s,\"ok\":%s,\"tries\":%d,\"err\":\"%s\",\"face\":%s,\"n\":%d,\"fx\":%.2f,\"fy\":%.2f,"
              "\"size\":%.2f,\"ms\":%.0f,\"raw_x\":%.2f,\"raw_y\":%.2f,\"motion\":%.2f,\"mx\":%.2f,\"luma\":%.0f,"
              "\"kp\":%s,\"roll\":%.0f,\"yaw\":%.2f,\"pitch\":%.2f,\"sway\":%.2f,"
@@ -852,7 +832,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              ns.rssi, ns.fails, ns.last_reason, b->cfg.voice ? "true" : "false", (unsigned)vr.seq,
              vr.ready ? "true" : "false", vr.rec ? "true" : "false", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024), boots, crash, fw, clock, b->night ? "true" : "false",
-             b->focus_end ? (int)(b->focus_end - now) : 0, b->break_end ? (int)(b->break_end - now) : 0, b->demo ? "true" : "false", vs.enabled ? "true" : "false",
+             b->focus_end ? (int)(b->focus_end - now) : 0, b->break_end ? (int)(b->break_end - now) : 0, vs.enabled ? "true" : "false",
              vs.ok ? "true" : "false", vs.tries, esp_err_to_name(vs.err), vs.face ? "true" : "false", vs.faces, vs.fx, vs.fy,
              vs.fsize, vs.infer_ms, vs.raw_x, vs.raw_y, vs.motion, vs.motion_x, vs.luma, vs.kp_ok ? "true" : "false",
              vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.slot_presence, vs.slot_desc, vs.slot_owner, vs.slot_type,
@@ -899,7 +879,6 @@ static void focus_stop(brain_t *b, sl_anim_t *a, double now)
 
 static void focus_tick(brain_t *b, sl_anim_t *a, double now)
 {
-    if (b->demo) return;
     if (b->focus_end && now >= b->focus_end) {
         b->focus_end = 0;
         b->break_end = now + BREAK_S;
@@ -912,144 +891,6 @@ static void focus_tick(brain_t *b, sl_anim_t *a, double now)
         audio_play(SFX_WAKE);
         buzz(HAPTIC_TICK);
     }
-}
-
-/* ---------------- demo: every feature in ~2 minutes, for recording a video ---------------- */
-
-typedef enum { DA_NONE = 0, DA_TILT, DA_DANCE, DA_LOOK, DA_SWAY, DA_NUDGE, DA_HELPERS } demo_act_t;
-typedef struct {
-    sl_state_t st;
-    int8_t sfx; /* -1 = none */
-    uint8_t act;
-    bool cam;   /* needs the camera; skipped without it */
-    float min_s;
-    const char *msg, *msg_en;
-} demo_step_t;
-
-static const demo_step_t DEMO[] = {
-    {SL_GREET, SFX_BOOT, DA_NONE, false, 4, "大家好！我是住在你桌上的史莱姆。", "Hi! I'm the slime on your desk."},
-    {SL_POKE_L, SFX_POKE, DA_NONE, false, 3, "戳我一下，我会软软地弹一下～", "Poke me and I bounce, all squishy~"},
-    {SL_POKE_R, SFX_POKE, DA_NONE, false, 3, "换一边戳也可以！", "The other side works too!"},
-    {SL_THINK, -1, DA_NONE, false, 4, "我和 Claude Code 连在一起。\nClaude 在思考，我也在思考……", "I'm linked to Claude Code.\nWhen Claude thinks, I think too..."},
-    {SL_WORK, -1, DA_NONE, false, 4, "Claude 动手干活时，\n我会显示它正在做什么。", "When Claude gets to work,\nI show what it is doing."},
-    {SL_WORK, -1, DA_HELPERS, false, 5, "Claude 派出子代理，我就分出小分身！", "Claude sends out subagents, I split off helpers!"},
-    {SL_WAIT, SFX_ASK, DA_NUDGE, false, 4, "Claude 需要你批准时，\n我会叫你、闪灯、还会震动。", "When Claude needs your approval,\nI call you, flash and vibrate."},
-    {SL_LEVELUP, SFX_LEVELUP, DA_NONE, false, 4, "完成任务攒经验，还能升级！", "Finish tasks, earn EXP, level up!"},
-    {SL_HURT, SFX_HURT, DA_NONE, false, 3.5f, "命令出错时，我会受到伤害……", "When a command fails, I get hurt..."},
-    {SL_DIZZY, SFX_DIZZY, DA_NONE, false, 4, "使劲摇晃我，就会晕头转向～", "Shake me hard and I get dizzy~"},
-    {SL_IDLE, -1, DA_TILT, false, 6, "把设备歪过来，我会顺着滑过去！", "Tip the device and I slide along!"},
-    {SL_IDLE, -1, DA_DANCE, false, 9, "空闲时我会哼歌，\n还会跟着节拍摇摆。", "When idle I hum a tune\nand sway to the beat."},
-    {SL_IDLE, -1, DA_LOOK, true, 6, "装上摄像头，我的眼睛会跟着你转。\n右上角的小窗是我看到的画面。", "With a camera my eyes follow you.\nThe corner window shows what I see."},
-    {SL_IDLE, -1, DA_SWAY, true, 5, "你歪头，我也跟着歪～", "Tilt your head and I tilt too~"},
-    {SL_GREET, SFX_SHY, DA_NONE, true, 3.5f, "一直盯着我看，我会害羞的！", "Stare at me and I get shy!"},
-    {SL_GREET, SFX_HELLO, DA_NONE, true, 3.5f, "冲我点点头，我会很开心！", "Nod at me and I'm happy!"},
-    {SL_SULK, SFX_SULK, DA_NONE, true, 3.5f, "冲我摇摇头……我会有点委屈。", "Shake your head... and I sulk a bit."},
-    {SL_GREET, SFX_GREET, DA_NONE, true, 3.5f, "盖住镜头再拿开，就是躲猫猫！", "Cover the lens, then peekaboo!"},
-    {SL_GREET, SFX_GREET, DA_NONE, false, 3.5f, "拍两下手，我会回应你。", "Clap twice and I answer you."},
-    {SL_CHARGE, -1, DA_NONE, false, 3.5f, "插上电，我会大口大口地吃电。", "Plug me in and I gulp down power."},
-    {SL_MELT, -1, DA_NONE, false, 4, "电快用完时，我会慢慢化掉……", "When the battery runs low, I melt..."},
-    {SL_METAL, SFX_HELLO, DA_NONE, false, 3.5f, "偶尔还会变成金属的！", "Sometimes I even turn to metal!"},
-    {SL_SLEEP, SFX_SLEEP, DA_NONE, false, 4, "没人陪我玩，我就去睡觉。\n夜里还会自动静音。", "With no one to play with, I sleep.\nAt night I go quiet by myself."},
-    {SL_GREET, SFX_WAKE, DA_NONE, false, 3.5f, "你一回来，我就醒了！", "When you come back, I wake up!"},
-    {SL_IDLE, -1, DA_NONE, false, 5, "长按屏幕打开设置，\n用手机访问 slime.local 有完整面板。", "Hold the screen for settings.\nOpen slime.local on your phone for more."},
-    {SL_GREET, SFX_DONE, DA_NONE, false, 4, "谢谢观看！", "Thanks for watching!"},
-};
-#define DEMO_N ((int)(sizeof DEMO / sizeof DEMO[0]))
-#define DEMO_COUNTDOWN_S 3
-
-static void demo_clear_fx(brain_t *b, sl_anim_t *a)
-{
-    a->ext_look_on = false;
-    a->ext_sway = 0;
-    a->ext_tilt = 0;
-    b->demo_pip = false;
-    b->demo_minis = 0;
-}
-
-static void demo_start(brain_t *b, sl_anim_t *a, double now)
-{
-    b->demo = true;
-    b->demo_i = -1;
-    b->demo_t0 = now;
-    b->manual_until = now + 1e6; /* the brain keeps its hands off */
-    audio_stop_bgm();
-    demo_clear_fx(b, a);
-    sl_anim_set_state(a, SL_IDLE, now);
-}
-
-static void demo_stop(brain_t *b, sl_anim_t *a, double now)
-{
-    if (!b->demo) return;
-    b->demo = false;
-    b->manual_until = 0;
-    audio_stop_bgm();
-    demo_clear_fx(b, a);
-    sl_anim_set_state(a, SL_IDLE, now);
-    b->last_activity = now;
-}
-
-static float demo_len(const demo_step_t *d) /* long enough for the caption to finish typing and be read */
-{
-    const float type_s = (float)sl_text_count(SL_TR(d->msg, d->msg_en)) / TYPE_CPS + 1.8f;
-    return type_s > d->min_s ? type_s : d->min_s;
-}
-
-static void demo_begin_step(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
-{
-    while (b->demo_i < DEMO_N && DEMO[b->demo_i].cam && !cam_ok) b->demo_i++;
-    if (b->demo_i >= DEMO_N) {
-        demo_stop(b, a, now);
-        return;
-    }
-    const demo_step_t *d = &DEMO[b->demo_i];
-    b->demo_t0 = now;
-    snprintf(b->demo_msg, sizeof b->demo_msg, "%s", SL_TR(d->msg, d->msg_en));
-    sl_anim_set_state(a, d->st, now);
-    if (d->sfx >= 0) audio_play((sfx_t)d->sfx);
-    if (d->act == DA_NUDGE) buzz(HAPTIC_NUDGE);
-    if (d->act == DA_DANCE) audio_play_bgm(BGM_TOWN);
-}
-
-/* Runs the current step; true while the demo owns the pet (the brain and camera stay out). */
-static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
-{
-    if (!b->demo) return false;
-    const double t = now - b->demo_t0;
-    if (b->demo_i < 0) { /* 3, 2, 1: time to step back and hit record */
-        const int left = DEMO_COUNTDOWN_S - (int)t;
-        if (left > 0) {
-            snprintf(b->demo_msg, sizeof b->demo_msg, SL_TR("功能演示马上开始…… %d", "The demo starts in... %d"), left);
-            return true;
-        }
-        b->demo_i = 0;
-        demo_begin_step(b, a, cam_ok, now);
-        return b->demo;
-    }
-    const demo_step_t *d = &DEMO[b->demo_i];
-    const float ph = (float)(t * 2 * M_PI);
-    switch (d->act) {
-    case DA_TILT: a->ext_tilt = 0.5f * sinf(ph / 3.0f); break;     /* tip it right, then left */
-    case DA_LOOK:
-        a->ext_look_on = true;
-        a->ext_look_x = sinf(ph / 2.5f);
-        a->ext_look_y = 0.15f;
-        b->demo_pip = true;
-        break;
-    case DA_SWAY: a->ext_sway = 0.28f * sinf(ph / 2.5f); break;
-    case DA_HELPERS: { /* one, two, three helpers, then they all hop back in */
-        const int n = 1 + (int)(t / 0.7);
-        b->demo_minis = t > demo_len(d) - 1.3f ? 0 : (n < 3 ? n : 3);
-        break;
-    }
-    default: break;
-    }
-    if (t >= demo_len(d)) {
-        if (d->act == DA_DANCE) audio_stop_bgm();
-        demo_clear_fx(b, a);
-        b->demo_i++;
-        demo_begin_step(b, a, cam_ok, now);
-    }
-    return b->demo;
 }
 
 /* ---------------- push-to-talk ---------------- */
@@ -1156,7 +997,6 @@ static void maybe_hum(brain_t *b, const sl_anim_t *a, cc_status_t cs, double now
         audio_stop_bgm(); /* not while it sleeps or works */
         return;
     }
-    if (b->demo) return;
     if (!b->next_hum) b->next_hum = now + HUM_FIRST_S;
     if (now < b->next_hum) return;
     if (!b->cfg.bgm || !b->cfg.sound || b->night || b->focus_end || a->state != SL_IDLE || cs != CC_IDLE || au.playing ||
@@ -1469,7 +1309,7 @@ void app_main(void)
             voice_stop(&s_b, &a, now); /* released, or 10 s full */
         }
         /* the wake word: the same conversation as holding the AI key, hands free */
-        if (wake_take() && s_b.cfg.wake && s_b.cfg.voice && !s_b.listening && !s_b.voice_wait_until && !s_b.demo && !sui_active()) {
+        if (wake_take() && s_b.cfg.wake && s_b.cfg.voice && !s_b.listening && !s_b.voice_wait_until && !sui_active()) {
             voice_start(&s_b, &a, now, true);
         }
         voice_tick(&s_b, &a, now);
@@ -1483,7 +1323,7 @@ void app_main(void)
             react(&s_b, &a, SL_POKE_R, now, c.sound ? SL_TR("声音打开了！", "Sound is on!") : SL_TR("嘘……已经静音了。", "Shh... Muted."));
             buzz(HAPTIC_TICK);
             if (c.sound) audio_play(SFX_HELLO);
-        } else if (ev == EV_AI_LONG && s_b.cfg.voice && !s_b.demo) {
+        } else if (ev == EV_AI_LONG && s_b.cfg.voice) {
             if (!s_b.listening) voice_start(&s_b, &a, now, false);
         } else if (ev == EV_AI_LONG) {
             s_open_help = true;
@@ -1530,11 +1370,7 @@ void app_main(void)
                 press_t0 = now;
                 long_done = false;
             }
-            if (tp.down && !long_done && now - press_t0 > LONG_PRESS_S && s_b.demo) {
-                long_done = true; /* during the demo a long press ends it (taps do not: you may be filming) */
-                demo_stop(&s_b, &a, now);
-                buzz(HAPTIC_NUDGE);
-            } else if ((tp.down && !long_done && now - press_t0 > LONG_PRESS_S) || s_open_settings) {
+            if ((tp.down && !long_done && now - press_t0 > LONG_PRESS_S) || s_open_settings) {
                 long_done = true;
                 s_open_settings = false;
                 net_status_t ns;
@@ -1563,18 +1399,13 @@ void app_main(void)
         const char *cc_detail;
         int cc_busy;
         const cc_status_t cs = cc_status(&s_b.cc, now, &cc_detail, &cc_busy);
-        vision_state_t vsn;
-        vision_get(&vsn);
-        const bool in_demo = demo_tick(&s_b, &a, vsn.ok, now);
         const int cc_subs = cc_subagents(&s_b.cc, now);
-        a.ext_minis = in_demo ? s_b.demo_minis : cc_subs;
-        if (!in_demo) {
-            handle_vision(&s_b, &a, cs, now);
-            maybe_hum(&s_b, &a, cs, now);
-            focus_tick(&s_b, &a, now);
-        }
+        a.ext_minis = cc_subs;
+        handle_vision(&s_b, &a, cs, now);
+        maybe_hum(&s_b, &a, cs, now);
+        focus_tick(&s_b, &a, now);
         const sl_state_t want = want_base(&s_b, cs, now);
-        if (!in_demo && sl_state_duration(a.state) == 0 && now >= s_b.manual_until && a.state != want) {
+        if (sl_state_duration(a.state) == 0 && now >= s_b.manual_until && a.state != want) {
             if (a.state == SL_SLEEP && want == SL_IDLE) {
                 react(&s_b, &a, SL_GREET, now, SL_TR("史莱姆醒过来了！", "The slime woke up!"));
                 sfx(&a, SFX_WAKE);
@@ -1604,7 +1435,7 @@ void app_main(void)
             }
         }
         { /* quiet hours: no sound, no LEDs (unless Claude needs you), dimmer screen */
-            const bool night = !s_b.demo && night_now(&s_b);
+            const bool night = night_now(&s_b);
             if (night != s_b.night) {
                 s_b.night = night;
                 audio_set_muted(night);
@@ -1625,7 +1456,6 @@ void app_main(void)
             if (s_b.focus_end || s_b.break_end) focus_stop(&s_b, &a, now);
             else focus_start(&s_b, &a, now);
         }
-        if (sui_act == SUI_ACT_DEMO) demo_start(&s_b, &a, now);
         if (sui_act == SUI_ACT_HELP || s_open_help) {
             s_open_help = false;
             helpview = true;
@@ -1729,7 +1559,7 @@ void app_main(void)
             vision_get(&vs);
             if (vs.ok && !cam_was_ok) pip_until = now + PIP_POPUP_S; /* plugged in (or booted): show what it sees */
             cam_was_ok = vs.ok;
-            const bool want = vs.ok && (s_b.cfg.cam_pip || now < pip_until || s_b.demo_pip);
+            const bool want = vs.ok && (s_b.cfg.cam_pip || now < pip_until);
             const sl_rect_t pr = PIP_RECT;
             if (want) {
                 if (!s_pip_shown) {

@@ -161,21 +161,18 @@ from the data.
 ```text
 Build a three-voice chiptune synthesizer (square, triangle, noise) with scores written as MML
 text, including pitch glides and ties. Compose an original boot tune, cues, and two background
-tunes it hums now and then while idle (with an off switch). Then port the public-domain sfxr
-engine, so the web panel can generate sounds at random, preview them and swap any event's sound.
+tunes it hums now and then while idle (with an off switch).
 ```
 
 **Pitfalls**:
 - A long note written as two notes of the same pitch re-attacks and sounds like an extra hit. The score format needs ties.
-- sfxr is designed for 44.1 kHz; if the device outputs 48 kHz, resample, or pitch and length come out wrong.
 - The synthesizer compiles on the host too: render every sound there and check lengths and peaks. It's much faster than listening on the board.
 
-## Stage 9: everyday features and a demo
+## Stage 9: everyday features
 
 ```text
 Add a clock (network time, time-of-day greetings), quiet hours (mute, LEDs off, dimmer screen),
-a focus timer, a help page, and a two-minute feature demo with captions and a 3-second
-countdown, for recording videos; the demo must not change the real level or EXP.
+a focus timer and a help page.
 ```
 
 **Pitfalls**:

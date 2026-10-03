@@ -27,10 +27,10 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
 | **Microphone** | Clap twice to say hi; it bobs to the beat of music (keyboard typing is ignored) |
 | **Camera** (optional module) | Its eyes follow you; tilt your head and it tilts too; nod and it's happy, shake your head and it sulks; stare and it gets shy; cover the lens for peekaboo; reminds you to get up after sitting too long; a corner thumbnail shows what it sees. All computed on the device; no picture leaves it |
-| **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes; a built-in sfxr engine lets you generate and swap any sound from the web panel |
+| **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
-| **Everyday** | Chinese / English UI, clock and time-of-day greetings, quiet hours, a focus timer, sitting reminders, a help page, and a one-press feature demo for recording videos |
-| **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, custom sounds, the camera picture |
+| **Everyday** | Chinese / English UI, clock and time-of-day greetings, quiet hours, a focus timer, sitting reminders and a help page |
+| **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, the camera picture |
 | **Wireless updates** | Two-slot OTA; a new image must run for 30 s before it confirms itself, and a crash before that rolls back to the old one |
 
 ## Hardware
@@ -127,7 +127,7 @@ Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead
 | Path | Contents |
 |---|---|
 | `firmware/slime/components/slime_core/` | Rendering core in plain C, no ESP-IDF dependency: rasterizer `sg`, state machine and jelly springs `slime_anim`, renderer `slime_render`, text `slime_text`, menu `slime_menu` |
-| `firmware/slime/main/` | Device side: main loop and "brain" (`main.c`), Claude Code session tracking `cc_track`, sensors `sensors`, audio and synthesizers `audio`/`sfxr`, scores `tunes_original.h`, camera and face `vision`, networking `net`, web panel `web`, settings `config`/`settings_ui`, wireless updates `ota`, crash records `bootlog` |
+| `firmware/slime/main/` | Device side: main loop and "brain" (`main.c`), Claude Code session tracking `cc_track`, sensors `sensors`, audio and synthesizers `audio`, scores `tunes_original.h`, camera and face `vision`, networking `net`, web panel `web`, settings `config`/`settings_ui`, wireless updates `ota`, crash records `bootlog` |
 | `firmware/slime/host/` | Host test program: renders images, benchmarks and runs unit tests with the same rendering code |
 | `firmware/slime/tools/` | USB flashing, wireless updates, glyph generation |
 | `firmware/slime/bootloader_components/` | Bootloader hook that holds the power on at once (otherwise the board cannot boot on battery) |
@@ -145,14 +145,13 @@ make test        # cc_track unit tests + pixel-exact check of the dual-core spli
 ./host_sim helpers 3 2 work out/helpers.bmp   # 3 helper slimes, 2 s after they were sent out
 ```
 
-**No board?** `make sim` runs the real firmware on your computer (poke, shake and press keys in a window; point the Claude Code hook at it with `SLIME_HOST=127.0.0.1:8080`), and `make simtest` is a scripted end-to-end test. To test only the hook, use `bridge/fake_device.py`. See [firmware/slime/host/README.md](firmware/slime/host/README.md).
+**No board?** `make sim` runs the real firmware on your computer (poke, shake and press keys in a window; point the Claude Code hook at it with `SLIME_HOST=127.0.0.1:8080`), and `make simtest` is a scripted end-to-end test. See [firmware/slime/host/README.md](firmware/slime/host/README.md).
 
 (PNG output uses macOS `sips`; elsewhere, look at the BMP.)
 
 ## Customising
 
 - **Music**: scores live in `main/tunes_original.h`, written in MML (syntax at the top of `audio.c`). To use your own, put the same two tables in `main/tunes_local.h`: that file is ignored by git and replaces the bundled tunes when present.
-- **Sounds**: the panel's custom sound section generates sfxr sounds at random, or takes JSON exported from [sfxr.me](https://sfxr.me/), and swaps the sound of any event. Stored on the device; no rebuild needed.
 - **Text and font**: every character used in the source is pre-rendered at three sizes, plus a 22 px table of the 3,755 most common Chinese characters for dynamic text such as AI comments. After changing strings in the code, regenerate the glyphs (needs Pillow and [Noto Sans SC](https://fonts.google.com/noto/specimen/Noto+Sans+SC)):
 
   ```bash
@@ -175,6 +174,6 @@ make test        # cc_track unit tests + pixel-exact check of the dual-core spli
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Third-party material (Noto Sans SC glyphs, sfxr, the BSP patch) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
+MIT, see [LICENSE](LICENSE). Third-party material (Noto Sans SC glyphs, the BSP patch) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 This is a hobby project. The slime is a generic retro-RPG-style character, not affiliated with any game company, and the repository contains no music or assets from any game.

@@ -1,6 +1,7 @@
 #include "slime_anim.h"
 
 #include "sg.h"
+#include "slime_text.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -545,25 +546,43 @@ void sl_anim_step(sl_anim_t *a, double now, float dt, sl_pose_t *out)
 
 void sl_anim_message(const sl_anim_t *a, char *buf, size_t len)
 {
-    static const char *MSG[SL_STATE_COUNT] = {
-        [SL_IDLE] = "史莱姆正在发呆。",
-        [SL_GREET] = "史莱姆很高兴见到你！",
-        [SL_POKE_L] = "噗叽！史莱姆被戳了一下。",
-        [SL_POKE_R] = "噗叽！史莱姆被戳了一下。",
-        [SL_DIZZY] = "史莱姆晕头转向……",
-        [SL_SLEEP] = "史莱姆睡着了……",
-        [SL_THINK] = "史莱姆正在思考……",
-        [SL_WAIT] = "史莱姆在等你下令！",
-        [SL_HURT] = "史莱姆受到了 3 点伤害！",
-        [SL_CHARGE] = "史莱姆正在吃电，好吃！",
-        [SL_MELT] = "史莱姆快要化掉了……",
-        [SL_METAL] = "史莱姆变成金属的了！",
-        [SL_WORK] = "史莱姆正在努力干活！",
-        [SL_SULK] = "史莱姆有点委屈……",
+    static const char *MSG[SL_LANG_COUNT][SL_STATE_COUNT] = {
+        [SL_LANG_ZH] = {
+            [SL_IDLE] = "史莱姆正在发呆。",
+            [SL_GREET] = "史莱姆很高兴见到你！",
+            [SL_POKE_L] = "噗叽！史莱姆被戳了一下。",
+            [SL_POKE_R] = "噗叽！史莱姆被戳了一下。",
+            [SL_DIZZY] = "史莱姆晕头转向……",
+            [SL_SLEEP] = "史莱姆睡着了……",
+            [SL_THINK] = "史莱姆正在思考……",
+            [SL_WAIT] = "史莱姆在等你下令！",
+            [SL_HURT] = "史莱姆受到了 3 点伤害！",
+            [SL_CHARGE] = "史莱姆正在吃电，好吃！",
+            [SL_MELT] = "史莱姆快要化掉了……",
+            [SL_METAL] = "史莱姆变成金属的了！",
+            [SL_WORK] = "史莱姆正在努力干活！",
+            [SL_SULK] = "史莱姆有点委屈……",
+        },
+        [SL_LANG_EN] = {
+            [SL_IDLE] = "The slime is daydreaming.",
+            [SL_GREET] = "The slime is happy to see you!",
+            [SL_POKE_L] = "Boing! The slime got poked.",
+            [SL_POKE_R] = "Boing! The slime got poked.",
+            [SL_DIZZY] = "The slime is dizzy...",
+            [SL_SLEEP] = "The slime fell asleep...",
+            [SL_THINK] = "The slime is thinking...",
+            [SL_WAIT] = "The slime awaits your command!",
+            [SL_HURT] = "The slime takes 3 damage!",
+            [SL_CHARGE] = "The slime is eating power. Yum!",
+            [SL_MELT] = "The slime is melting...",
+            [SL_METAL] = "The slime turned to metal!",
+            [SL_WORK] = "The slime is hard at work!",
+            [SL_SULK] = "The slime is a little hurt...",
+        },
     };
     if (a->state == SL_LEVELUP) {
-        snprintf(buf, len, "叮叮叮！升到了 Lv %d！", a->flag_up ? a->lv : a->lv + 1);
+        snprintf(buf, len, SL_TR("叮叮叮！升到了 Lv %d！", "Ding ding! Reached Lv %d!"), a->flag_up ? a->lv : a->lv + 1);
     } else {
-        snprintf(buf, len, "%s", MSG[a->state]);
+        snprintf(buf, len, "%s", MSG[sl_lang == SL_LANG_EN][a->state]);
     }
 }

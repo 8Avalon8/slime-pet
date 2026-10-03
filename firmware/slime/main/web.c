@@ -138,6 +138,34 @@ static esp_err_t h_head(httpd_req_t *req)
     return send_json(req, js);
 }
 
+/* Push-to-talk: GET /api/voice.wav?seq=<n> -> that recording once (16 kHz mono WAV), then 404.
+ * Only the bridge's slime_buddy.py asks; a recording exists only after someone held the AI key. */
+static esp_err_t h_voice(httpd_req_t *req)
+{
+    char q[32], v[16];
+    uint32_t seq = 0;
+    if (httpd_req_get_url_query_str(req, q, sizeof q) == ESP_OK && httpd_query_key_value(q, "seq", v, sizeof v) == ESP_OK)
+        seq = (uint32_t)strtoul(v, NULL, 10);
+    size_t n = 0;
+    const int16_t *pcm = audio_rec_take(seq, &n);
+    if (!pcm) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no such recording");
+    const uint32_t bytes = n * 2, rate = AUDIO_REC_RATE, brate = AUDIO_REC_RATE * 2, riff = 36 + bytes;
+    uint8_t h[44] = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'A', 'V', 'E', 'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 16, 0, 'd', 'a', 't', 'a'};
+    memcpy(h + 4, &riff, 4); /* little-endian, like the ESP32 */
+    memcpy(h + 24, &rate, 4);
+    memcpy(h + 28, &brate, 4);
+    memcpy(h + 40, &bytes, 4);
+    httpd_resp_set_type(req, "audio/wav");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    if (httpd_resp_send_chunk(req, (const char *)h, sizeof h) != ESP_OK) return ESP_FAIL;
+    for (size_t off = 0; off < bytes; off += 4096) {
+        const size_t len = bytes - off < 4096 ? bytes - off : 4096;
+        if (httpd_resp_send_chunk(req, (const char *)pcm + off, len) != ESP_OK) return ESP_FAIL;
+    }
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 static esp_err_t h_index(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -156,7 +184,7 @@ static esp_err_t h_status(httpd_req_t *req)
 #define CFG_FIELDS(X)                                                                                                  \
     X(screen_bright, num) X(sleep_bright, num) X(led_bright, num) X(idle_breath, bool) X(motor, bool) X(sleep_min, num) \
     X(tilt, bool) X(mic, bool) X(clap_sens, num) X(dance, bool) X(sound, bool) X(volume, num) X(text_blip, bool)        \
-    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool)
+    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool) X(voice, bool) X(lang, num)
 
 static esp_err_t send_config(httpd_req_t *req)
 {
@@ -295,6 +323,7 @@ esp_err_t web_start(void)
         {.uri = "/api/cam.bmp", .method = HTTP_GET, .handler = h_cam},
         {.uri = "/api/sfxr", .method = HTTP_GET, .handler = h_sfxr_get},
         {.uri = "/api/head", .method = HTTP_GET, .handler = h_head},
+        {.uri = "/api/voice.wav", .method = HTTP_GET, .handler = h_voice},
         {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_http_handler},
         {.uri = "/api/sfxr", .method = HTTP_POST, .handler = h_sfxr_post},
     };

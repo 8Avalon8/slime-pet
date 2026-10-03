@@ -740,7 +740,7 @@ void sl_render_hud(sg_canvas_t *cv, int lv, float hp)
 {
     const sg_rgb_t wh = {1, 1, 1};
     win(cv, 16, 14, 168, 64);
-    sl_text_draw(cv, "史莱姆", 30, 40, SL_FONT_18, wh, -1);
+    sl_text_draw(cv, SL_TR("史莱姆", "Slime"), 30, 40, SL_FONT_18, wh, -1);
     char buf[16];
     buf[0] = 'L';
     buf[1] = 'v';

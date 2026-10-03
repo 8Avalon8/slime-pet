@@ -20,12 +20,24 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slime_hook  # noqa: E402  (same port lock and raw-tty handling as the hook)
 
 
+def _run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=3).stdout
+
+
 def current_ssid():
+    """The Wi-Fi this computer is on, as a default; "" when unknown."""
     try:
-        out = subprocess.run(["ipconfig", "getsummary", "en0"], capture_output=True, text=True, timeout=3).stdout
+        if sys.platform == "darwin":
+            out = _run(["ipconfig", "getsummary", "en0"])
+            sep = "SSID :"
+        elif os.name == "nt":
+            out = _run(["netsh", "wlan", "show", "interfaces"])
+            sep = "SSID"  # "    SSID                   : name" ("BSSID" lines don't start with it)
+        else:
+            return _run(["iwgetid", "-r"]).strip()
         for line in out.splitlines():
             line = line.strip()
-            if line.startswith("SSID :"):
+            if line.startswith(sep) and ":" in line:
                 ssid = line.split(":", 1)[1].strip()
                 return "" if ssid == "<redacted>" else ssid
     except Exception:
@@ -34,10 +46,9 @@ def current_ssid():
 
 
 def main():
-    import glob
-
-    if not glob.glob(slime_hook.PORT_GLOB):
-        sys.exit("没找到史莱姆的 USB 串口（%s）。先用数据线连上设备。" % slime_hook.PORT_GLOB)
+    if not slime_hook.find_ports():
+        sys.exit("没找到史莱姆的 USB 串口（%s）。先用数据线连上设备，"
+                 "或者用环境变量 SLIME_PORT 指定，比如 COM5。" % slime_hook.PORT_HINT)
     guess = current_ssid()
     ssid = input("Wi-Fi 名称（只支持 2.4 GHz）%s: " % (f"[回车用 {guess}]" if guess else "")).strip() or guess
     if not ssid or len(ssid.encode()) > 32:

@@ -1,11 +1,14 @@
 /*
- * Host harness: runs slime_core on macOS and writes BMP frames.
+ * Host harness: runs slime_core on macOS or Linux and writes BMP frames.
  *
  *   host_sim frame <state> <t> <out.bmp> [dialog]  dialog text, "\\n" = second line
  *   host_sim sheet <out.bmp>              13 states, raw poses, 4-column contact sheet
  *   host_sim frame <state> <t> <out.bmp>  one full frame (HUD + dialog), raw pose
  *   host_sim helpers <n> <t> <state> <out.bmp>  n subagent helpers, t s after they were sent out
  *   host_sim bench                        time 600 animated frames with springs
+ *   host_sim menu <page> <out.bmp> [flash_row]   settings screen
+ *
+ * SLIME_LANG=en renders the English UI.
  */
 #define _POSIX_C_SOURCE 199309L /* clock_gettime under -std=c11 on Linux */
 #include <stdio.h>
@@ -98,6 +101,8 @@ static double now_s(void)
 int main(int argc, char **argv)
 {
     sl_render_init();
+    const char *lang = getenv("SLIME_LANG");
+    if (lang && !strcmp(lang, "en")) sl_lang = SL_LANG_EN;
     if (argc >= 3 && !strcmp(argv[1], "sheet")) {
         static const struct {
             sl_state_t s;
@@ -162,7 +167,9 @@ int main(int argc, char **argv)
     if (argc >= 4 && !strcmp(argv[1], "menu")) { /* settings screen preview: menu <page> out.bmp */
         sg_canvas_t cv;
         sg_canvas_init(&cv, fb, S, S, S);
+        static const char *const LANGS[] = {"中文", "English"};
         sl_menu_item_t it[] = {
+            {"语言 / Language", SL_MI_CHOICE, sl_lang, 0, 1, 1, .opts = LANGS},
             {"屏幕亮度", SL_MI_NUM, 100, 10, 100, 10, "%"}, {"睡觉时亮度", SL_MI_NUM, 25, 0, 100, 5, "%"},
             {"彩灯亮度", SL_MI_NUM, 50, 0, 100, 10, "%"}, {"自动睡眠", SL_MI_NUM, 10, 5, 60, 5, "分"},
             {"音量", SL_MI_NUM, 40, 0, 100, 10, "%"}, {"拍手灵敏度", SL_MI_NUM, 5, 1, 10, 1, ""},
@@ -171,11 +178,22 @@ int main(int argc, char **argv)
             {"倾斜滑动", SL_MI_BOOL, 1}, {"显示帧率", SL_MI_BOOL, 0}, {"Wi-Fi", SL_MI_INFO},
             {"设置网页", SL_MI_INFO}, {"等级", SL_MI_INFO},
         };
-        snprintf(it[14].text, sizeof it[14].text, "home_2.4G  -39 dBm");
-        snprintf(it[15].text, sizeof it[15].text, "http://slime.local");
-        snprintf(it[16].text, sizeof it[16].text, "Lv 2  (2/16)");
-        sl_menu_t m = {.items = it, .n = 17, .page = atoi(argv[2]), .flash_row = argc >= 5 ? atoi(argv[4]) : -1};
-        sl_menu_render(&cv, &m, "设置");
+        static const char *const EN[][2] = {
+            {"Language / 语言"}, {"Brightness", "%"}, {"Asleep brightness", "%"}, {"LED brightness", "%"}, {"Auto sleep", "m"},
+            {"Volume", "%"}, {"Clap sensitivity", ""}, {"Sound effects"}, {"Typing blips"}, {"Breathing LEDs when idle"},
+            {"Vibration"}, {"Microphone"}, {"Bob to the sound"}, {"Tilt to slide"}, {"Show FPS"}, {"Wi-Fi"},
+            {"Web panel"}, {"Level"},
+        };
+        const int n = (int)(sizeof it / sizeof it[0]);
+        for (int i = 0; i < n && sl_lang == SL_LANG_EN; i++) {
+            it[i].label = EN[i][0];
+            it[i].unit = EN[i][1];
+        }
+        snprintf(it[15].text, sizeof it[15].text, "home_2.4G  -39 dBm");
+        snprintf(it[16].text, sizeof it[16].text, "http://slime.local");
+        snprintf(it[17].text, sizeof it[17].text, "Lv 2  (2/16)");
+        sl_menu_t m = {.items = it, .n = n, .page = atoi(argv[2]), .flash_row = argc >= 5 ? atoi(argv[4]) : -1};
+        sl_menu_render(&cv, &m, SL_TR("设置", "Settings"));
         write_bmp(argv[3], fb, S, S, S);
         return 0;
     }

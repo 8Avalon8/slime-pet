@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: bridge unit tests (what the slime knows when it chats)
+        run: python3 -m unittest discover bridge -v
       - name: cc_track unit test + split render check
         run: make -C firmware/slime/host test
       - name: Firmware in the simulator, end to end

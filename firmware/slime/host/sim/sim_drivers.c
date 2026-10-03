@@ -10,6 +10,7 @@
 #include "sim.h"
 
 #include "audio.h"
+#include "wake.h"
 #include "bootlog.h"
 #include "haptic.h"
 #include "inbox.h"
@@ -91,6 +92,15 @@ uint32_t audio_rec_stop(uint32_t min_ms)
     portEXIT_CRITICAL(&s_rec_m);
     return (uint32_t)ms;
 }
+void audio_rec_voice(uint32_t *speech_ms, uint32_t *quiet_ms) { *speech_ms = *quiet_ms = 0; }
+
+/* no wake word in the simulator: start a conversation with the AI key */
+esp_err_t wake_start(void) { return ESP_ERR_NOT_SUPPORTED; }
+bool wake_available(void) { return false; }
+void wake_enable(bool on) {}
+void wake_feed(const int16_t *pcm, size_t samples) {}
+bool wake_take(void) { return false; }
+
 bool audio_rec_active(void)
 {
     portENTER_CRITICAL(&s_rec_m);

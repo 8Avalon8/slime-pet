@@ -45,7 +45,7 @@ CONFIG = {
     "screen_bright": 100, "sleep_bright": 25, "led_bright": 128, "idle_breath": True, "motor": True,
     "sleep_min": 10, "tilt": True, "mic": True, "clap_sens": 5, "dance": True, "sound": True, "volume": 45,
     "text_blip": False, "show_fps": False, "camera": True, "sit_min": 50, "bgm": True, "cam_pip": False,
-    "night_start": 23, "night_end": 7, "focus_min": 25, "ai_comment": True,
+    "night_start": 23, "night_end": 7, "focus_min": 25, "ai_comment": True, "voice": True, "lang": 0, "wake": True,
 }
 SFX = ["levelup", "done", "hurt", "ask", "poke", "greet", "dizzy", "startle", "sleep", "wake", "hello", "blip",
        "boot", "sulk", "shy"]

@@ -17,6 +17,9 @@ Not included in this repository, fetched at build time:
 - ESP Component Registry packages listed in `firmware/slime/main/idf_component.yml` and
   `dependencies.lock` (esp_tinyusb, mdns, cjson, esp_lcd_touch, human_face_detect / esp-dl, …),
   each under its own license (Apache-2.0 or MIT).
+- [esp-sr](https://github.com/espressif/esp-sr) for the wake word: the library and its WakeNet model
+  ("小龙小龙") are fetched at build time and packed into the firmware image. They come under the
+  Espressif MIT License, which allows use only on Espressif chips; see the LICENSE in that repository.
 
 ## Not affiliated
 

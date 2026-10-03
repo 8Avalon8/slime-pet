@@ -72,6 +72,8 @@ bool audio_rec_start(void);
 /* Ends the recording; returns its length in ms. A recording of at least min_ms becomes the
  * new "ready" one with a new sequence number (the bridge fetches it from /api/voice.wav). */
 uint32_t audio_rec_stop(uint32_t min_ms);
+/* While recording: how much voice has been heard so far, and for how long it has been quiet. */
+void audio_rec_voice(uint32_t *speech_ms, uint32_t *quiet_ms);
 bool audio_rec_active(void); /* false again once AUDIO_REC_MAX_S is full */
 typedef struct {
     uint32_t seq; /* last finished recording, 0 = none yet */

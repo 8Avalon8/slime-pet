@@ -34,6 +34,7 @@ typedef struct {
     bool enabled;
     bool ok;          /* camera streaming */
     bool face_on, gesture_on; /* which models are loaded right now (vision_set_features) */
+    bool gesture_missing;     /* gestures are switched on, but this device's flash has no hand models (they come with a USB flash) */
     bool hand;        /* a hand in the latest analysed frame */
     int gesture;      /* ... and what it shows (vision_gesture_t), VG_NONE if nothing sure */
     float gesture_score, hand_ms; /* the classifier's confidence 0..1; time for detector + classifier */

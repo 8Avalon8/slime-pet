@@ -900,7 +900,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"cam\":{\"on\":%s,\"ok\":%s,\"tries\":%d,\"err\":\"%s\",\"face\":%s,\"n\":%d,\"fx\":%.2f,\"fy\":%.2f,"
              "\"size\":%.2f,\"ms\":%.0f,\"raw_x\":%.2f,\"raw_y\":%.2f,\"motion\":%.2f,\"mx\":%.2f,\"luma\":%.0f,"
              "\"kp\":%s,\"roll\":%.0f,\"yaw\":%.2f,\"pitch\":%.2f,\"sway\":%.2f,"
-             "\"face_on\":%s,\"gesture_on\":%s,\"hand\":%s,\"gesture\":%d,\"gscore\":%.2f,\"hand_ms\":%.0f,"
+             "\"face_on\":%s,\"gesture_on\":%s,\"gesture_missing\":%s,\"hand\":%s,\"gesture\":%d,\"gscore\":%.2f,\"hand_ms\":%.0f,"
              "\"slot\":{\"presence\":%d,\"desc\":%d,\"owner\":%d,\"type\":%d,\"err\":\"%s\",\"bus_resets\":%d}}}",
              ss.imu_ok ? "true" : "false", ss.ax, ss.ay, ss.az, ss.tilt, ss.face_down ? "true" : "false",
              ss.mod_ok ? "true" : "false", ss.motion ? "true" : "false", ss.light, au.ok && au.mic ? "true" : "false", au.db,
@@ -911,7 +911,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              b->focus_end ? (int)(b->focus_end - now) : 0, b->break_end ? (int)(b->break_end - now) : 0, vs.enabled ? "true" : "false",
              vs.ok ? "true" : "false", vs.tries, esp_err_to_name(vs.err), vs.face ? "true" : "false", vs.faces, vs.fx, vs.fy,
              vs.fsize, vs.infer_ms, vs.raw_x, vs.raw_y, vs.motion, vs.motion_x, vs.luma, vs.kp_ok ? "true" : "false",
-             vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.face_on ? "true" : "false", vs.gesture_on ? "true" : "false",
+             vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.face_on ? "true" : "false", vs.gesture_on ? "true" : "false", vs.gesture_missing ? "true" : "false",
              vs.hand ? "true" : "false", vs.gesture, vs.gesture_score, vs.hand_ms, vs.slot_presence, vs.slot_desc, vs.slot_owner, vs.slot_type,
              esp_err_to_name(vs.slot_err), vs.bus_resets);
     web_publish_status(js);
@@ -1169,6 +1169,18 @@ static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
     vision_state_t vs;
     vision_get(&vs);
     camera_watch(b, a, &vs, now);
+    /* gestures switched on, but they cannot run, or they pushed the face model out: say so once */
+    static bool said_missing, said_squeezed;
+    const bool missing = vs.ok && b->cfg.gesture && vs.gesture_missing;
+    const bool squeezed = vs.ok && b->cfg.gesture && b->cfg.face && vs.gesture_on && !vs.face_on;
+    if ((missing && !said_missing) || (squeezed && !said_squeezed)) {
+        snprintf(b->notice, sizeof b->notice, "%s",
+                 missing ? SL_TR("手势模型还没装上：\n用 USB 线烧录一次固件就有了", "No gesture models yet:\nflash the firmware once over USB")
+                         : SL_TR("内存只够开一个：先认手势，\n人脸检测等手势关掉再用", "Memory fits only one: gestures first.\nFaces resume when gestures are off"));
+        b->notice_until = now + 12;
+    }
+    said_missing = missing;
+    said_squeezed = squeezed;
     const bool seen = vs.ok && vs.face;
     if (seen) {
         if (now - b->last_motion > AWAY_S && calm_state(a->state) && a->state != SL_SLEEP) {
@@ -1651,13 +1663,7 @@ void app_main(void)
             wake_enable(s_b.cfg.wake && s_b.cfg.voice);
             vision_set_features(s_b.cfg.face, s_b.cfg.gesture);
             vision_enable(s_b.cfg.camera);
-            static bool greeted, both_seen;
-            const bool both = s_b.cfg.camera && s_b.cfg.face && s_b.cfg.gesture;
-            if (both && !both_seen && greeted) { /* just switched on: vision.cpp keeps only the gesture models */
-                snprintf(s_b.notice, sizeof s_b.notice, "%s", SL_TR("内存只够开一个：先认手势，\n人脸检测等手势关掉再用", "Memory fits only one: gestures first.\nFaces resume when gestures are off"));
-                s_b.notice_until = now + 10;
-            }
-            both_seen = both;
+            static bool greeted;
             if (!greeted) { /* the first time the settings are applied: title-screen fanfare */
                 greeted = true;
                 audio_play(SFX_BOOT);

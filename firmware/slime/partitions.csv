@@ -7,3 +7,9 @@ ota_0,    app,  ota_0,   0x10000, 7M,
 ota_1,    app,  ota_1,   0x710000, 7M,
 otadata,  data, ota,     0xE10000, 0x2000,
 coredump, data, coredump, 0xE12000, 64K,
+# hand gesture models (PR #24): read in place from flash, so they take no RAM while gestures are
+# off. Appended after everything else: nothing above moves. A wireless update cannot write them;
+# they arrive with a USB flash (idf.py flash / tools/backup_and_flash.py). Names are fixed by the
+# esp-dl components.
+hand_det,         data, spiffs, 0xE30000, 0x90000,
+hand_gesture_cls, data, spiffs, 0xEC0000, 0xF0000,

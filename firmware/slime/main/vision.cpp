@@ -9,6 +9,8 @@
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
+#include "spi_flash_mmap.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -197,11 +199,31 @@ static void check_slot(ctx_t *c, esp_err_t attempt)
              (int)m.owner_state, s_st.slot_type, esp_err_to_name(m.last_error));
 }
 
+/* The hand models sit in two flash partitions that only a USB flash writes. A device that was
+ * updated over the air does not have them (or has them empty): gestures are then unavailable,
+ * which must not be found out by esp-dl aborting. */
+static bool gesture_pack_ok(void)
+{
+    static int8_t ok = -1; /* flash contents do not change while running */
+    if (ok >= 0) return ok;
+    size_t need = 0;
+    ok = 1;
+    for (const char *name : {"hand_det", "hand_gesture_cls"}) {
+        const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, name);
+        char magic[4] = {};
+        if (!p || esp_partition_read(p, 0, magic, sizeof magic) != ESP_OK || memcmp(magic, "PDL3", 4)) ok = 0; /* packed .espdl */
+        else need += p->size;
+    }
+    if (ok && (size_t)spi_flash_mmap_get_free_pages(SPI_FLASH_MMAP_DATA) * 65536 < need) ok = 0; /* esp-dl maps them whole */
+    if (!ok) ESP_LOGW(TAG, "no hand gesture models in flash: flash once over USB to get them");
+    return ok;
+}
+
 /* The models follow their switches: loaded when a feature is turned on, freed when it is turned
  * off, so that only what is in use takes memory. */
 static void sync_models(ctx_t *c)
 {
-    const bool face = s_face_on, gesture = s_gesture_on;
+    const bool face = s_face_on, pack = !s_gesture_on || gesture_pack_ok(), gesture = s_gesture_on && pack;
     if (!face && c->model) {
         delete c->model;
         c->model = NULL;
@@ -253,6 +275,7 @@ static void sync_models(ctx_t *c)
     portENTER_CRITICAL(&s_lock);
     s_st.face_on = c->model != NULL;
     s_st.gesture_on = c->hand != NULL;
+    s_st.gesture_missing = !pack;
     portEXIT_CRITICAL(&s_lock);
 }
 

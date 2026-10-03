@@ -1090,8 +1090,9 @@ static void slot_watch(brain_t *b, sl_anim_t *a, double now)
             continue;
         }
         if (now - b->slot_seen_t[i] < SLOT_STABLE_S) continue;
-        /* busy or asleep: it says so once it is calm again (and says nothing if things are back as they were by then) */
-        if (!calm_state(a->state) || a->state == SL_SLEEP || b->listening || b->voice_wait_until) continue;
+        /* It interrupts work and thinking, like a poke does: whoever plugged it in is watching for an answer.
+         * Asleep or in a conversation: it says so afterwards (and says nothing if things are back as they were by then). */
+        if (a->state == SL_SLEEP || a->state == SL_LEVELUP || b->listening || b->voice_wait_until) continue;
         b->slot_known[i] = cur;
         b->last_activity = now; /* someone is right here */
         const int what = cur != SLOT_EMPTY ? cur : was;

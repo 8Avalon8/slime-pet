@@ -362,29 +362,44 @@ def send_line(line, tries=3):
             time.sleep(1)
 
 
-TTS_WAIT_S = 15  # longest wait for a line's voice before showing it silently
+TTS_WAIT_S = 20  # longest wait for an answer's voice before showing it silently
+VOICE_CHARS = 70  # one clip reads about this much within the pet's limit (tts.MAX_S seconds)
 
 
-def speech(mood, lines):
-    """Futures for each line's voice (16 kHz PCM for /api/speak), synthesized two at a time so
-    the next line is ready while one plays; None when the pet does not want answers read aloud."""
+def voice_parts(lines, limit=VOICE_CHARS):
+    """Dialog lines grouped into as few parts as fit a clip each: a part is read aloud in one go,
+    so the voice does not stop between the lines on the screen."""
+    parts = []
+    for line in lines:
+        if parts and sum(len(x) for x in parts[-1]) + len(line) <= limit:
+            parts[-1].append(line)
+        else:
+            parts.append([line])
+    return parts
+
+
+def speech(mood, texts):
+    """Futures for each text's voice (16 kHz PCM for /api/speak), synthesized two at a time so
+    the next one is ready while one plays; None when the pet does not want answers read aloud."""
     cfg = tts.device_config()
     if not cfg.get("speak") or (last_status or {}).get("night"):  # night mode: the pet stays quiet
         return None
     pitch = cfg.get("speak_pitch", 100)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
-    clips = [pool.submit(tts.speak_bytes, line, mood, pitch) for line in lines]
+    clips = [pool.submit(tts.speak_bytes, text, mood, pitch) for text in texts]
     pool.shutdown(wait=False)
     return clips
 
 
 def talk(mood, text):
-    """Show an answer on the pet, a dialog line at a time, and read it aloud when that is on
-    (the line waits for its voice; without one it stays up for its typewriter time)."""
-    lines = chunks(text)
-    clips = speech(mood, lines)
+    """Show an answer on the pet and read it aloud when that is on. The voice runs through
+    without stopping (one clip for the whole answer, or a few for a long one) and the dialog
+    lines follow it, each shown when the voice gets to it; without a voice a line stays up for
+    its typewriter time."""
+    parts = voice_parts(chunks(text))
+    clips = speech(mood, ["".join(part) for part in parts])
     next_at = 0
-    for i, line in enumerate(lines):
+    for i, part in enumerate(parts):
         clip = None
         if clips:
             try:
@@ -395,7 +410,6 @@ def talk(mood, text):
                     c.cancel()
                 clips = None
         time.sleep(max(0.0, next_at - time.time()))
-        send_line("talk %s %s\n" % (mood, line))
         secs = None
         if clip:
             try:
@@ -406,8 +420,20 @@ def talk(mood, text):
                 for c in clips or []:
                     c.cancel()
                 clips = None
-        # typewriter speed is 24 characters per second, then a moment to read it
-        next_at = time.time() + (secs + 0.4 if secs else 2.0 + len(line) / 24)
+        total = sum(len(line) for line in part) or 1
+        start = time.time()
+        said = 0
+        for line in part:
+            if secs:  # the line appears when the voice reaches it
+                time.sleep(max(0.0, start + secs * said / total - time.time()))
+            else:
+                time.sleep(max(0.0, next_at - time.time()))
+            send_line("talk %s %s\n" % (mood, line))
+            said += len(line)
+            # typewriter speed is 24 characters per second, then a moment to read it
+            next_at = time.time() + 2.0 + len(line) / 24
+        if secs:
+            next_at = start + secs + 0.15
 
 
 def handle_voice(seq):

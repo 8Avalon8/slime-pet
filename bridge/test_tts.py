@@ -141,12 +141,18 @@ class Talk(unittest.TestCase):
             buddy.talk("happy", "今天写了好多代码呢。要不要休息一下，陪我玩一会儿？")
         return sent, played, slept
 
-    def test_each_line_is_read_aloud_and_the_next_waits_for_it(self):
+    def test_the_answer_is_read_in_one_go_and_its_lines_follow_the_voice(self):
         sent, played, slept = self.run_talk({"speak": True, "speak_pitch": 120},
-                                            lambda line, mood, pitch: ("%s|%d" % (line, pitch)).encode())
+                                            lambda text, mood, pitch: ("%s|%d" % (text, pitch)).encode())
         self.assertEqual(len(sent), 2)
-        self.assertEqual(played, [s[len("talk happy "):-1].encode() + b"|120" for s in sent])
-        self.assertGreater(slept[1], 1.5)  # the second line waited for the first one's voice
+        whole = "".join(s[len("talk happy "):-1] for s in sent)
+        self.assertEqual(played, [whole.encode() + b"|120"])  # one clip: the voice does not stop between lines
+
+    def test_a_long_answer_is_read_in_a_few_parts(self):
+        lines = ["一二三四五六七八九十。"] * 9  # 99 characters: more than one clip holds
+        parts = buddy.voice_parts(lines)
+        self.assertEqual([len(p) for p in parts], [6, 3])
+        self.assertEqual(sum(parts, []), lines)
 
     def test_off_means_text_only(self):
         sent, played, _ = self.run_talk({"speak": False}, lambda *a: self.fail("synthesized"))

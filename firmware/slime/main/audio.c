@@ -348,7 +348,7 @@ static bool speech_mix(speech_t *sp, int16_t *out)
         }
     }
     const float rms = k ? sqrtf((float)(acc / k)) / 32768.0f : 0;
-    s_speak_level = rms * 4 > 1 ? 1 : rms * 4; /* speech sits around 0.05-0.2 RMS */
+    s_speak_level = rms * 3 > 1 ? 1 : rms * 3; /* speech sits around 0.2 RMS after speak_loudness() */
     return sp->i < sp->n;
 }
 
@@ -468,7 +468,8 @@ static void audio_task(void *arg)
         }
         if (!synth_active(&y) || y.bgm) { /* effects cut the background tune short */
             int s;
-            if (xQueueReceive(s_q, &s, 0) == pdTRUE && s_sound_on && s >= 0 && s < SFX_COUNT) synth_load(&y, &SOUNDS[s], 1.0f, false);
+            /* while it speaks, effects and typing blips are dropped: they would cover the voice */
+            if (xQueueReceive(s_q, &s, 0) == pdTRUE && s_sound_on && !sp.pcm && s >= 0 && s < SFX_COUNT) synth_load(&y, &SOUNDS[s], 1.0f, false);
         }
         if (y.bgm && !s_sound_on) synth_stop(&y);
         if (s_speak_cut) {
@@ -641,8 +642,38 @@ void audio_set_muted(bool muted)
     }
 }
 
+/* Synthesized speech arrives quiet (around 0.05-0.1 RMS) next to the tunes and effects: bring every
+ * clip to the same loudness. Peaks that would clip are bent over instead of cut off. */
+#define SPEAK_RMS 0.20f     /* target, of full scale */
+#define SPEAK_GAIN_MAX 6.0f /* a nearly silent clip is not blown up into noise */
+#define SPEAK_KNEE 22000    /* above this a sample only rises a quarter as fast */
+static void speak_loudness(int16_t *pcm, size_t n)
+{
+    uint64_t acc = 0;
+    size_t voiced = 0;
+    for (size_t i = 0; i < n; i++) {
+        const int32_t v = pcm[i];
+        if (v > 300 || v < -300) { /* pauses do not count */
+            acc += (uint32_t)(v * v);
+            voiced++;
+        }
+    }
+    if (voiced < AUDIO_SPEAK_RATE / 10) return;
+    const float rms = sqrtf((float)(acc / voiced)) / 32768.0f;
+    float g = SPEAK_RMS / rms;
+    g = g < 1 ? 1 : (g > SPEAK_GAIN_MAX ? SPEAK_GAIN_MAX : g);
+    const int32_t g256 = (int32_t)(g * 256);
+    for (size_t i = 0; i < n; i++) {
+        int32_t v = pcm[i] * g256 / 256;
+        if (v > SPEAK_KNEE) v = SPEAK_KNEE + (v - SPEAK_KNEE) / 4;
+        else if (v < -SPEAK_KNEE) v = -SPEAK_KNEE + (v + SPEAK_KNEE) / 4;
+        pcm[i] = (int16_t)(v > 32767 ? 32767 : (v < -32768 ? -32768 : v));
+    }
+}
+
 bool audio_speak(int16_t *pcm, size_t samples)
 {
+    if (samples) speak_loudness(pcm, samples);
     portENTER_CRITICAL(&s_lock);
     const bool ok = s_st.ok && !s_muted && samples > 0;
     int16_t *old = s_speak_new;

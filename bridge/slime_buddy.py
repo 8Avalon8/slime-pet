@@ -23,6 +23,7 @@ Usage:
 
 Model endpoints and memory location: see slime_brain.py.
 """
+import concurrent.futures
 import datetime as dt
 import json
 import os
@@ -33,6 +34,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slime_agent as agent  # noqa: E402
 import slime_brain as brain  # noqa: E402
+import slime_tts as tts  # noqa: E402
 
 POLL_S = 1.5              # device status (voice needs to feel responsive)
 RULES_S = 10
@@ -360,12 +362,52 @@ def send_line(line, tries=3):
             time.sleep(1)
 
 
+TTS_WAIT_S = 15  # longest wait for a line's voice before showing it silently
+
+
+def speech(mood, lines):
+    """Futures for each line's voice (16 kHz PCM for /api/speak), synthesized two at a time so
+    the next line is ready while one plays; None when the pet does not want answers read aloud."""
+    cfg = tts.device_config()
+    if not cfg.get("speak") or (last_status or {}).get("night"):  # night mode: the pet stays quiet
+        return None
+    pitch = cfg.get("speak_pitch", 100)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    clips = [pool.submit(tts.speak_bytes, line, mood, pitch) for line in lines]
+    pool.shutdown(wait=False)
+    return clips
+
+
 def talk(mood, text):
-    """Show an answer on the pet, a dialog line at a time."""
-    for i, line in enumerate(chunks(text)):
-        if i:
-            time.sleep(2.0 + len(line) / 24)  # typewriter speed is 24 characters per second
+    """Show an answer on the pet, a dialog line at a time, and read it aloud when that is on
+    (the line waits for its voice; without one it stays up for its typewriter time)."""
+    lines = chunks(text)
+    clips = speech(mood, lines)
+    next_at = 0
+    for i, line in enumerate(lines):
+        clip = None
+        if clips:
+            try:
+                clip = clips[i].result(timeout=TTS_WAIT_S)
+            except Exception as e:  # no voice this time: the rest is shown silently
+                log("speech: synthesis failed (%s); showing the text only" % (str(e) or type(e).__name__))
+                for c in clips:
+                    c.cancel()
+                clips = None
+        time.sleep(max(0.0, next_at - time.time()))
         send_line("talk %s %s\n" % (mood, line))
+        secs = None
+        if clip:
+            try:
+                secs = tts.play(clip)
+            except Exception as e:
+                log("speech: the pet did not take it:", e)
+            if secs is None:  # turned off, night mode, or unreachable: stop synthesizing
+                for c in clips or []:
+                    c.cancel()
+                clips = None
+        # typewriter speed is 24 characters per second, then a moment to read it
+        next_at = time.time() + (secs + 0.4 if secs else 2.0 + len(line) / 24)
 
 
 def handle_voice(seq):
@@ -459,7 +501,7 @@ def run():
     global last_status
     lock = single_instance()  # noqa: F841  (held until exit)
     log("slime buddy: memory %s" % brain.HOME)
-    for line in brain.describe_settings():
+    for line in brain.describe_settings() + tts.describe_settings():
         log("  " + line)
     rules, st, voice_seen = Rules(), None, None
     next_rules, next_diary, last_line, offline_logged = 0, 0, 0, False

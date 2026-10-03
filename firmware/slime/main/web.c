@@ -111,6 +111,43 @@ static esp_err_t h_voice(httpd_req_t *req)
     return httpd_resp_send_chunk(req, NULL, 0);
 }
 
+/* Spoken answer: POST /api/speak, body = 16 kHz mono 16-bit little-endian PCM (no header), up to
+ * AUDIO_SPEAK_MAX_S. 409 when it will not be played (speech off, night mode, no codec): the bridge
+ * then shows the text alone. An empty body stops what is being said. */
+static esp_err_t h_speak(httpd_req_t *req)
+{
+    const size_t len = req->content_len;
+    if (len > AUDIO_SPEAK_RATE * 2 * AUDIO_SPEAK_MAX_S || len % 2) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "need 16 kHz mono s16le PCM, at most 20 s");
+    }
+    slime_cfg_t c;
+    cfg_get(&c);
+    if (len == 0) {
+        audio_speak_stop();
+        return send_json(req, "{\"ok\":true}");
+    }
+    char *pcm = c.speak ? heap_caps_malloc(len, MALLOC_CAP_SPIRAM) : NULL;
+    size_t got = 0;
+    while (got < len) { /* read it all even when it is not wanted: the connection stays usable */
+        char sink[256];
+        const size_t want = pcm ? len - got : (len - got < sizeof sink ? len - got : sizeof sink);
+        const int r = httpd_req_recv(req, pcm ? pcm + got : sink, want);
+        if (r <= 0) {
+            if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            free(pcm);
+            return ESP_FAIL;
+        }
+        got += r;
+    }
+    if (!pcm || !audio_speak((int16_t *)pcm, len / 2)) { /* audio_speak frees it when it says no */
+        httpd_resp_set_status(req, "409 Conflict");
+        return send_json(req, c.speak ? "{\"ok\":false,\"why\":\"muted\"}" : "{\"ok\":false,\"why\":\"off\"}");
+    }
+    char out[48];
+    snprintf(out, sizeof out, "{\"ok\":true,\"ms\":%u}", (unsigned)(len / 2 * 1000 / AUDIO_SPEAK_RATE));
+    return send_json(req, out);
+}
+
 static esp_err_t h_index(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -129,7 +166,8 @@ static esp_err_t h_status(httpd_req_t *req)
 #define CFG_FIELDS(X)                                                                                                  \
     X(screen_bright, num) X(sleep_bright, num) X(led_bright, num) X(idle_breath, bool) X(motor, bool) X(sleep_min, num) \
     X(tilt, bool) X(mic, bool) X(clap_sens, num) X(dance, bool) X(sound, bool) X(volume, num) X(text_blip, bool)        \
-    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool) X(voice, bool) X(lang, num) X(wake, bool) X(scene, num)
+    X(show_fps, bool) X(camera, bool) X(sit_min, num) X(bgm, bool) X(cam_pip, bool) X(night_start, num) X(night_end, num) X(focus_min, num) X(ai_comment, bool) X(voice, bool) X(lang, num) X(wake, bool) X(scene, num) \
+    X(speak, bool) X(speak_pitch, num)
 
 static esp_err_t send_config(httpd_req_t *req)
 {
@@ -202,7 +240,7 @@ static esp_err_t h_ai_get(httpd_req_t *req) { return send_ai(req); }
 
 static esp_err_t h_ai_post(httpd_req_t *req)
 {
-    char body[BODY_MAX * 2]; /* six fields of up to AI_VALUE_MAX */
+    static char body[BODY_MAX * 3]; /* ten fields of up to AI_VALUE_MAX; static: one request at a time */
     if (read_body(req, body, sizeof body) != ESP_OK) return ESP_FAIL;
     cJSON *o = cJSON_Parse(body);
     memset(body, 0, sizeof body);
@@ -213,7 +251,7 @@ static esp_err_t h_ai_post(httpd_req_t *req)
     }
     /* A key belongs to the service it was entered for: when the address changes and no key comes
      * with it, the old key is dropped, so that nobody on the network can redirect it elsewhere. */
-    static const struct { ai_field_t url, key; } PAIRS[] = {{AI_LLM_URL, AI_LLM_KEY}, {AI_STT_URL, AI_STT_KEY}};
+    static const struct { ai_field_t url, key; } PAIRS[] = {{AI_LLM_URL, AI_LLM_KEY}, {AI_STT_URL, AI_STT_KEY}, {AI_TTS_URL, AI_TTS_KEY}};
     for (size_t i = 0; i < sizeof PAIRS / sizeof PAIRS[0] && !bad; i++) {
         const cJSON *u = cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].url));
         if (u && strcmp(u->valuestring, ai_get(PAIRS[i].url)) && !cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].key))) {
@@ -330,6 +368,7 @@ esp_err_t web_start(void)
         {.uri = "/api/cam.bmp", .method = HTTP_GET, .handler = h_cam},
         {.uri = "/api/head", .method = HTTP_GET, .handler = h_head},
         {.uri = "/api/voice.wav", .method = HTTP_GET, .handler = h_voice},
+        {.uri = "/api/speak", .method = HTTP_POST, .handler = h_speak},
         {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_http_handler},
         {.uri = "/api/ai", .method = HTTP_GET, .handler = h_ai_get},
         {.uri = "/api/ai", .method = HTTP_POST, .handler = h_ai_post},

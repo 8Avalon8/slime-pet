@@ -126,6 +126,8 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 
 也可以不按键：喊"小龙小龙"，它回一句"我在！你说～"后直接说话，停顿一秒左右自动结束；唤醒后 5 秒没人说话就算了。唤醒词由设备自己识别（乐鑫 esp-sr 的 WakeNet，模型打包在固件里），只有唤醒之后的那一句才会发给电脑。设置里的"喊小龙小龙唤醒"可以关掉。想换唤醒词：在 `sdkconfig.defaults` 里把 `CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS` 换成 esp-sr 提供的其他现成模型（`idf.py menuconfig` 的 ESP Speech Recognition 里有列表），重新编译；自定义的词要找乐鑫训练。
 
+**把回答念出来**（可选）：语音对话的回答可以由史莱姆自己念出来，嘴巴跟着声音动。在网页面板“AI 设置”里填“语音合成 Key”就行：只填 Key 时默认用[小米 MiMo](https://platform.xiaomimimo.com/)（目前限时免费）的 `mimo-v2.5-tts`、音色“冰糖”；也可以填硅基流动（`https://api.siliconflow.cn/v1`，CosyVoice2）或任何 OpenAI 兼容的 `/audio/speech` 接口。什么都不填时会试着用语音转文字的接口。MiMo 的音色可选冰糖、茉莉、苏打、白桦；模型换成 `mimo-v2.5-tts-voicedesign` 时，“音色”一栏写一句声音描述（比如“奶声奶气的小史莱姆，语速轻快”）就能捏一个专属声音。合成在电脑上做，设备只播放（16 kHz，最长 20 秒一句）。面板里的“朗读音调”把声音整体调高或调低（像磁带快放），设备设置里的“朗读回答”可以关掉，夜间勿扰时不出声。环境变量 `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` 优先；`python3 bridge/slime_tts.py "你好呀"` 直接让它说一句，`python3 bridge/slime_tts.py config` 看当前配置。
+
 ## 仓库结构
 
 | 目录 | 内容 |
@@ -136,7 +138,7 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
 | `firmware/slime/patches/` | 对官方 BSP 的补丁（构建时自动打上） |
-| `bridge/` | 电脑端：Claude Code 钩子 `slime_hook.py`、记忆与模型调用 `slime_brain.py`、常驻伙伴 `slime_buddy.py`（主动陪伴、日记、语音对话）、Wi-Fi 配置 |
+| `bridge/` | 电脑端：Claude Code 钩子 `slime_hook.py`、记忆与模型调用 `slime_brain.py`、常驻伙伴 `slime_buddy.py`（主动陪伴、日记、语音对话）、语音合成 `slime_tts.py`、Wi-Fi 配置 |
 | `design/slime_preview.html` | 浏览器版设计稿：形象、状态、果冻物理参数的来源 |
 
 ## 在电脑上出图和测试

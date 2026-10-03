@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 HOST_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -227,6 +228,72 @@ def run():
           and trusted.get("llm_key") == "sk-test" and moved.get("llm_key_set") is False)
     (print("ok    AI settings: key hidden without the token") if ok
      else (failures.append("AI settings"), print("FAIL  AI settings: %r %r %r" % (plain, trusted, moved))))
+
+    speech()
+
+
+def speech():
+    """Reading answers aloud: /api/speak takes 16 kHz PCM while the setting is on, and the bridge's
+    talk() gets a line's voice from a text-to-speech service (a stand-in on localhost) to the pet."""
+    import http.server as hs
+    import threading
+    http("/api/config", json.dumps({"speak": True}))
+    got = json.loads(http("/api/speak", bytes(2 * 16000)))  # 1 s of silence
+    expect("speech: playing", lambda s: s["mic"].get("speaking"))
+    expect("speech: done after its length", lambda s: not s["mic"].get("speaking"), timeout=3)
+    http("/api/config", json.dumps({"speak": False}))
+    try:
+        http("/api/speak", bytes(3200))
+        refused = False
+    except urllib.error.HTTPError as e:
+        refused = e.code == 409
+    ok = got == {"ok": True, "ms": 1000} and refused
+    (print("ok    speech: 1 s accepted, refused when off") if ok
+     else (failures.append("speech endpoint"), print("FAIL  speech endpoint %r refused=%r" % (got, refused))))
+    http("/api/ai", json.dumps({"tts_key": "sk-tts"}))
+    plain = json.loads(http("/api/ai"))
+    ok = plain.get("tts_key_set") is True and "tts_key" not in plain
+    (print("ok    speech: key hidden without the token") if ok
+     else (failures.append("speech key"), print("FAIL  speech key %r" % plain)))
+    http("/api/ai", json.dumps({"tts_key": ""}))
+
+    asked = []
+
+    class TTS(hs.BaseHTTPRequestHandler):
+        def do_POST(self):
+            asked.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            pcm = bytes(2 * 12000)  # 0.5 s at 24 kHz
+            body = (b"RIFF" + struct.pack("<I", 36 + len(pcm)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, 24000, 48000, 2, 16)
+                    + b"data" + struct.pack("<I", len(pcm)) + pcm)
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = hs.ThreadingHTTPServer(("127.0.0.1", 0), TTS)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    os.environ.update(SLIME_HOST="127.0.0.1:%d" % PORT, SLIME_TTS_URL="http://127.0.0.1:%d/v1" % srv.server_address[1],
+                      SLIME_TTS_KEY="x", SLIME_HOME=os.path.join(HOST_DIR, "out", "sim", "home"))
+    sys.path.insert(0, os.path.join(REPO, "bridge"))
+    import slime_buddy as buddy
+    http("/api/config", json.dumps({"speak": True, "speak_pitch": 100}))
+    seen = []
+    t = threading.Thread(target=lambda: buddy.talk("happy", "你好呀，我是史莱姆。"))
+    t.start()
+    deadline = None  # the last line is still being said for a moment after talk() returns
+    while deadline is None or time.time() < deadline:
+        seen.append(status()["mic"].get("speaking"))
+        if deadline is None and not t.is_alive():
+            deadline = time.time() + 0.6
+        time.sleep(0.05)
+    srv.shutdown()
+    ok = asked and asked[0]["input"] == "你好呀，我是史莱姆。" and any(seen) and "史莱姆" in status().get("msg", "")
+    (print("ok    speech: the bridge reads an answer aloud") if ok
+     else (failures.append("bridge speech"), print("FAIL  bridge speech asked=%r seen=%r" % (asked, seen))))
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@
 #include "esp_app_format.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_ota_ops.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -18,6 +20,7 @@ static const char *TAG = "ota";
 #define CHUNK 4096
 #define HEAD_BYTES (sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))
 #define RECV_RETRIES 20 /* x the server's 5 s receive timeout */
+#define WRITE_PAUSE_MS 10 /* after each 4 KB chunk: about 15 s more for a 6 MB image */
 
 static char s_token[17];
 static volatile int s_progress = -1;
@@ -117,6 +120,10 @@ esp_err_t ota_http_handler(httpd_req_t *req)
         }
         got += fill;
         s_progress = (int)(got * 100 / total);
+        /* Flash writes busy-wait in this task (priority 5, core 0), above the main loop and the
+         * audio task on the same core: without a pause they are starved for the whole update, a
+         * frame takes seconds and the task watchdog resets the device mid-write. */
+        vTaskDelay(pdMS_TO_TICKS(WRITE_PAUSE_MS));
     }
     heap_caps_free(buf);
     if (why) return fail(req, h, why);

@@ -36,6 +36,7 @@ import json
 import os
 import re
 import socket
+import ssl
 import sys
 import time
 import urllib.error
@@ -61,6 +62,21 @@ BASE_PERSONA = (
     "你是一只住在桌面上的史莱姆宠物，正在看主人和 Claude Code 一起写代码。"
     "说话是可爱的中文口语，具体、不说空话，不提 AI、模型或 Claude 以外的产品名。"
 )
+
+def _trust_system_certs():
+    """python.org's Python on macOS ships without root certificates until its "Install
+    Certificates" step is run, so every https endpoint fails to verify. Use the system's bundle then."""
+    paths = ssl.get_default_verify_paths()
+    if paths.cafile or paths.capath or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return
+    for bundle in ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"):
+        if os.path.isfile(bundle):
+            ctx = ssl.create_default_context(cafile=bundle)
+            urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx)))
+            return
+
+
+_trust_system_certs()
 
 # ---------------- journal ----------------
 

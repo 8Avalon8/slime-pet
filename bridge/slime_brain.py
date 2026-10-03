@@ -304,16 +304,25 @@ def pick_model():
     return _model[1] or None
 
 
-def chat(messages, max_tokens=120, temperature=0.9, timeout=90):
+def chat_message(messages, max_tokens=120, temperature=0.9, timeout=90, tools=None):
+    """The model's reply message ({"role", "content", "tool_calls"?}), or None when no model is set.
+    tools: OpenAI-style function definitions the model may call."""
     model = pick_model()
     if not model:
         return None
     cfg = settings()
     body = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "messages": messages}
+    if tools:
+        body["tools"] = tools
     req = urllib.request.Request(cfg["llm_url"][0] + "/chat/completions", data=json.dumps(body).encode(),
                                  headers=_headers(cfg["llm_key"][0]))
     with urllib.request.urlopen(req, timeout=timeout) as r:  # the first call may load the model
-        return json.load(r)["choices"][0]["message"]["content"]
+        return json.load(r)["choices"][0]["message"]
+
+
+def chat(messages, max_tokens=120, temperature=0.9, timeout=90):
+    msg = chat_message(messages, max_tokens, temperature, timeout)
+    return None if msg is None else (msg.get("content") or "")
 
 
 GLYPH_FILES = [os.path.join(HERE, "..", "firmware", "slime", "components", "slime_core", f)
@@ -368,9 +377,11 @@ def _parse(out, max_chars, en=False):
     return mood, text
 
 
-def speak(system, user, max_chars=LINE_MAX, max_tokens=120, temperature=0.9):
+def speak(system, user, max_chars=LINE_MAX, max_tokens=120, temperature=0.9, first=None):
     """Ask for {"text","mood"} and keep only what the pet can draw. (mood, text) or None.
-    When the pet is set to English, the reply is English, plain ASCII, about twice as many characters."""
+    When the pet is set to English, the reply is English, plain ASCII, about twice as many characters.
+    first(messages): produces the first try instead of a plain chat (the tool-calling loop); it may
+    append to messages what the retries should see."""
     en = lang() == "en"
     if en:
         max_chars = max_chars * LINE_MAX_EN // LINE_MAX
@@ -380,7 +391,10 @@ def speak(system, user, max_chars=LINE_MAX, max_tokens=120, temperature=0.9):
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     mood, text, fewest = "neutral", "", None
     for attempt in range(3):
-        out = chat(messages, max_tokens=max_tokens, temperature=temperature)
+        if attempt == 0 and first:
+            out = first(messages)
+        else:
+            out = chat(messages, max_tokens=max_tokens, temperature=temperature)
         if out is None:
             if fewest is None:
                 return None

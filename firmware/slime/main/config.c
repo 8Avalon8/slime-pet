@@ -10,7 +10,7 @@
 
 static const char *TAG = "cfg";
 
-#define CFG_VERSION 11 /* v1 = everything up to show_fps; later fields are appended */
+#define CFG_VERSION 12 /* v1 = everything up to show_fps; later fields are appended */
 
 typedef struct {
     uint8_t version;
@@ -45,6 +45,8 @@ static const slime_cfg_t DEFAULTS = {
     .scene = CFG_SCENE_AUTO,
     .speak = true,
     .speak_pitch = 110,
+    .face = true,
+    .gesture = false,
 };
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;

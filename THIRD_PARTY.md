@@ -14,7 +14,7 @@ Not included in this repository, fetched at build time:
 - [ESP-IDF](https://github.com/espressif/esp-idf) — Apache-2.0
 - [esp-mosaico-bsp](https://github.com/esp-mosaico/esp-mosaico-bsp) — Apache-2.0 (cloned into `third_party/`)
 - ESP Component Registry packages listed in `firmware/slime/main/idf_component.yml` and
-  `dependencies.lock` (esp_tinyusb, mdns, cjson, esp_lcd_touch, human_face_detect / esp-dl, …),
+  `dependencies.lock` (esp_tinyusb, mdns, cjson, esp_lcd_touch, human_face_detect, hand_detect, hand_gesture_recognition / esp-dl, …),
   each under its own license (Apache-2.0 or MIT).
 - [esp-sr](https://github.com/espressif/esp-sr) for the wake word: the library and its WakeNet model
   ("小龙小龙") are fetched at build time and packed into the firmware image. They come under the

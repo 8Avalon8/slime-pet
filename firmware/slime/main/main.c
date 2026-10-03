@@ -349,6 +349,7 @@ static void progress_save(brain_t *b)
 
 static void focus_start(brain_t *b, sl_anim_t *a, double now);
 static void focus_stop(brain_t *b, sl_anim_t *a, double now);
+static void voice_start(brain_t *b, sl_anim_t *a, double now, bool handsfree);
 
 /* Quiet hours (needs the clock; off until SNTP has synced). */
 static bool night_now(const brain_t *b)
@@ -653,6 +654,46 @@ static led_mood_t mood_for(sl_state_t s, bool breath)
 }
 
 /* Sensor events and levels -> jelly physics, reactions and the brain's inputs. */
+/* Hand gestures are commands: each one does something the keys or the menu can do too. */
+static void handle_gesture(brain_t *b, sl_anim_t *a, int g, double now)
+{
+    if (a->state == SL_LEVELUP || a->state == SL_SLEEP || b->listening) return;
+    switch (g) {
+    case VG_LIKE:
+        react(b, a, SL_GREET, now, SL_TR("收到你的赞啦！嘿嘿～", "A thumbs up for me! Hehe~"));
+        sfx(a, SFX_HELLO);
+        break;
+    case VG_DISLIKE:
+        react(b, a, SL_SULK, now, SL_TR("呜……哪里做得不好吗？", "Sniff... What did I do wrong?"));
+        sfx(a, SFX_SULK);
+        break;
+    case VG_TWO:
+        react(b, a, SL_GREET, now, SL_TR("耶！一起比个耶～", "Yay! Peace~"));
+        sfx(a, SFX_GREET);
+        break;
+    case VG_FIVE: { /* open palm, "stop": sound off, and on again the next time */
+        slime_cfg_t c;
+        cfg_get(&c);
+        c.sound = !c.sound;
+        cfg_set(&c);
+        react(b, a, SL_POKE_R, now, c.sound ? SL_TR("声音打开了！", "Sound is on!") : SL_TR("嘘……已经静音了。", "Shh... Muted."));
+        if (c.sound) audio_play(SFX_HELLO);
+        break;
+    }
+    case VG_OK: /* the focus timer, like a click on the BOOT key */
+        if (b->focus_end || b->break_end) focus_stop(b, a, now);
+        else focus_start(b, a, now);
+        break;
+    case VG_CALL: /* "call me": talk without the key or the wake word */
+        if (!b->cfg.voice) react(b, a, SL_POKE_L, now, SL_TR("想聊天的话，\n先在设置里打开说话功能吧", "Want to chat?\nSwitch on talking in Settings first"));
+        else if (!b->voice_wait_until) voice_start(b, a, now, true);
+        break;
+    default: /* one, three, four: nothing yet */
+        return;
+    }
+    buzz(HAPTIC_TICK);
+}
+
 static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
 {
     sensor_ev_t ev;
@@ -733,6 +774,10 @@ static void handle_sensors(brain_t *b, sl_anim_t *a, double now)
                 sfx(a, SFX_SULK);
             }
             b->last_activity = now;
+            break;
+        case SEV_GESTURE:
+            b->last_activity = now;
+            handle_gesture(b, a, (int)ev.vx, now);
             break;
         case SEV_COVER:
             if (a->state != SL_LEVELUP && a->state != SL_SLEEP) react(b, a, SL_POKE_L, now, SL_TR("咦？天怎么黑了？", "Huh? Who turned off the lights?"));
@@ -855,6 +900,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"cam\":{\"on\":%s,\"ok\":%s,\"tries\":%d,\"err\":\"%s\",\"face\":%s,\"n\":%d,\"fx\":%.2f,\"fy\":%.2f,"
              "\"size\":%.2f,\"ms\":%.0f,\"raw_x\":%.2f,\"raw_y\":%.2f,\"motion\":%.2f,\"mx\":%.2f,\"luma\":%.0f,"
              "\"kp\":%s,\"roll\":%.0f,\"yaw\":%.2f,\"pitch\":%.2f,\"sway\":%.2f,"
+             "\"face_on\":%s,\"gesture_on\":%s,\"hand\":%s,\"gesture\":%d,\"gscore\":%.2f,\"hand_ms\":%.0f,"
              "\"slot\":{\"presence\":%d,\"desc\":%d,\"owner\":%d,\"type\":%d,\"err\":\"%s\",\"bus_resets\":%d}}}",
              ss.imu_ok ? "true" : "false", ss.ax, ss.ay, ss.az, ss.tilt, ss.face_down ? "true" : "false",
              ss.mod_ok ? "true" : "false", ss.motion ? "true" : "false", ss.light, au.ok && au.mic ? "true" : "false", au.db,
@@ -865,7 +911,8 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              b->focus_end ? (int)(b->focus_end - now) : 0, b->break_end ? (int)(b->break_end - now) : 0, vs.enabled ? "true" : "false",
              vs.ok ? "true" : "false", vs.tries, esp_err_to_name(vs.err), vs.face ? "true" : "false", vs.faces, vs.fx, vs.fy,
              vs.fsize, vs.infer_ms, vs.raw_x, vs.raw_y, vs.motion, vs.motion_x, vs.luma, vs.kp_ok ? "true" : "false",
-             vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.slot_presence, vs.slot_desc, vs.slot_owner, vs.slot_type,
+             vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.face_on ? "true" : "false", vs.gesture_on ? "true" : "false",
+             vs.hand ? "true" : "false", vs.gesture, vs.gesture_score, vs.hand_ms, vs.slot_presence, vs.slot_desc, vs.slot_owner, vs.slot_type,
              esp_err_to_name(vs.slot_err), vs.bus_resets);
     web_publish_status(js);
 }
@@ -995,7 +1042,7 @@ static void draw_help(sg_canvas_t *cv)
         {{"扣过来放", "让它睡觉"}, {"Lay face down", "Put it to sleep"}},
         {{"盖住镜头", "躲猫猫"}, {"Cover the lens", "Peekaboo"}},
         {{"点头 / 摇头", "开心 / 委屈"}, {"Nod / shake head", "Happy / sulky"}},
-        {{"歪头", "它跟着你歪"}, {"Tilt your head", "It tilts with you"}},
+        {{"点赞 / 手掌 / OK", "夸它 / 静音 / 专注"}, {"Hand gestures", "Like / mute / focus"}},
         {{"盯着它看", "它会害羞"}, {"Stare at it", "It gets shy"}},
         {{"点右上角小窗", "看摄像头全屏画面"}, {"Tap thumbnail", "Full-screen camera view"}},
         {{"AI 键", "单击静音，长按说话"}, {"AI key", "Click: mute; hold: talk"}},
@@ -1406,6 +1453,7 @@ void app_main(void)
     sensors_start();
     audio_start();
     wake_start();
+    vision_set_features(s_b.cfg.face, s_b.cfg.gesture);
     vision_enable(s_b.cfg.camera);
     vision_start();
     inbox_init();
@@ -1601,8 +1649,15 @@ void app_main(void)
             sensors_set_led_brightness(s_b.cfg.led_bright);
             audio_configure(s_b.cfg.mic, s_b.cfg.clap_sens, s_b.cfg.dance, s_b.cfg.sound, s_b.cfg.volume);
             wake_enable(s_b.cfg.wake && s_b.cfg.voice);
+            vision_set_features(s_b.cfg.face, s_b.cfg.gesture);
             vision_enable(s_b.cfg.camera);
-            static bool greeted;
+            static bool greeted, both_seen;
+            const bool both = s_b.cfg.camera && s_b.cfg.face && s_b.cfg.gesture;
+            if (both && !both_seen && greeted) { /* just switched on: allowed, but worth a word */
+                snprintf(s_b.notice, sizeof s_b.notice, "%s", SL_TR("人脸和手势一起开有点吃力，\n建议只留一个哦", "Faces and gestures together are heavy.\nBetter keep just one"));
+                s_b.notice_until = now + 10;
+            }
+            both_seen = both;
             if (!greeted) { /* the first time the settings are applied: title-screen fanfare */
                 greeted = true;
                 audio_play(SFX_BOOT);

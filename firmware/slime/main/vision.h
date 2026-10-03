@@ -15,9 +15,28 @@ extern "C" {
  * a cheap frame-difference wave detector. Everything stays on the device; frames never leave it.
  * Runs on core 1 at the lowest priority, in the time the render worker leaves idle.
  */
+/* Hand gestures the camera can tell apart; posted as SEV_GESTURE with vx = one of these. */
+typedef enum {
+    VG_NONE = 0,
+    VG_ONE,   /* fingers held up: one to five (five = open palm) */
+    VG_TWO,
+    VG_THREE,
+    VG_FOUR,
+    VG_FIVE,
+    VG_LIKE,    /* thumb up */
+    VG_OK,      /* thumb and forefinger make a ring */
+    VG_CALL,    /* thumb and little finger out, "call me" */
+    VG_DISLIKE, /* thumb down */
+    VG_COUNT,
+} vision_gesture_t;
+
 typedef struct {
     bool enabled;
-    bool ok;          /* camera streaming and model loaded */
+    bool ok;          /* camera streaming */
+    bool face_on, gesture_on; /* which models are loaded right now (vision_set_features) */
+    bool hand;        /* a hand in the latest analysed frame */
+    int gesture;      /* ... and what it shows (vision_gesture_t), VG_NONE if nothing sure */
+    float gesture_score, hand_ms; /* the classifier's confidence 0..1; time for detector + classifier */
     bool plugged;     /* a camera module sits in the left slot, whether or not it works */
     int tries;        /* open attempts so far */
     esp_err_t err;    /* last failure (NOT_FOUND/TIMEOUT = no camera plugged in) */
@@ -61,6 +80,9 @@ int vision_head_trace(vision_head_sample_t *out, int max, uint32_t since);
 
 void vision_start(void);
 void vision_enable(bool on);
+/* What the camera picture is analysed for. Each model is loaded when its feature is switched on
+ * and freed when it is switched off; the wave and cover detectors need neither. */
+void vision_set_features(bool face, bool gesture);
 void vision_get(vision_state_t *out);
 /* Copies the last detector input (BGR888, upright, top row first). Debug only. */
 bool vision_snapshot(uint8_t *dst, size_t cap, int *w, int *h);

@@ -75,6 +75,8 @@ python tools/ota_flash.py
 
 第一次无线更新会通过 USB 向设备要一个更新口令，缓存在 `bridge/.ota_token`，以后就不用插线了。
 
+手势识别的两个模型放在单独的闪存分区里，无线更新写不到那里：从没有手势识别的旧版本升级上来时，要再用 USB 烧录一次（`python tools/backup_and_flash.py`，设置和等级会保留）。没烧之前其他功能照常，只是手势开关打开后史莱姆会告诉你模型还没装上。
+
 **接上 Claude Code**（在仓库根目录运行）：
 
 ```bash

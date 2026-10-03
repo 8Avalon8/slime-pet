@@ -75,6 +75,8 @@ python tools/ota_flash.py
 
 The first wireless update fetches an update token from the device over USB and caches it in `bridge/.ota_token`; after that no cable is needed.
 
+The two hand gesture models live in flash partitions of their own, which a wireless update cannot write: when upgrading from a version without gestures, flash once more over USB (`python tools/backup_and_flash.py`; settings and level are kept). Until then everything else works, and the slime tells you the models are missing when gestures are switched on.
+
 **Hook up Claude Code** (from the repository root):
 
 ```bash

@@ -610,6 +610,7 @@ static char s_uri_names[URI_MAX][64];
 
 struct sim_req_priv {
     int fd;
+    const char *req_hdrs; /* request line and headers, NUL-terminated */
     const char *body; /* already read part of the body */
     size_t body_have, body_used;
     char query[256];
@@ -661,7 +662,22 @@ int httpd_req_recv(httpd_req_t *req, char *buf, size_t len)
 }
 
 size_t httpd_req_get_hdr_value_len(httpd_req_t *req, const char *field) { return 0; }
-esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *req, const char *field, char *val, size_t len) { return ESP_ERR_NOT_FOUND; }
+esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *req, const char *field, char *val, size_t len)
+{
+    const size_t fl = strlen(field);
+    for (const char *l = strstr(req->priv->req_hdrs, "\r\n"); l; l = strstr(l + 2, "\r\n")) {
+        if (strncasecmp(l + 2, field, fl) || l[2 + fl] != ':') continue;
+        const char *v = l + 3 + fl;
+        while (*v == ' ') v++;
+        const char *e = strstr(v, "\r\n");
+        const size_t n = e ? (size_t)(e - v) : strlen(v);
+        if (n >= len) return ESP_ERR_INVALID_SIZE;
+        memcpy(val, v, n);
+        val[n] = 0;
+        return ESP_OK;
+    }
+    return ESP_ERR_NOT_FOUND;
+}
 
 esp_err_t httpd_req_get_url_query_str(httpd_req_t *req, char *buf, size_t len)
 {
@@ -767,7 +783,7 @@ static void serve(int fd)
     char method[8] = "", path[512] = "";
     if (sscanf(buf, "%7s %511s", method, path) != 2) return;
     httpd_req_t req = {.method = !strcmp(method, "POST") ? HTTP_POST : !strcmp(method, "GET") ? HTTP_GET : HTTP_PUT};
-    sim_req_priv_t priv = {.fd = fd, .body = end + 4, .body_have = have - (size_t)(end + 4 - buf)};
+    sim_req_priv_t priv = {.fd = fd, .req_hdrs = buf, .body = end + 4, .body_have = have - (size_t)(end + 4 - buf)};
     req.priv = &priv;
     for (char *l = strstr(buf, "\r\n"); l; l = strstr(l + 2, "\r\n"))
         if (!strncasecmp(l + 2, "Content-Length:", 15)) req.content_len = strtoul(l + 17, NULL, 10);

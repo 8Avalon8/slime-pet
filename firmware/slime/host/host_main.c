@@ -10,7 +10,7 @@
  *
  * SLIME_LANG=en renders the English UI.
  */
-#define _POSIX_C_SOURCE 199309L /* clock_gettime under -std=c11 on Linux */
+#define _POSIX_C_SOURCE 200112L /* clock_gettime under -std=c11 on Linux; 2001 so that macOS still declares snprintf */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -48,3 +48,15 @@ void cfg_set(const slime_cfg_t *in);
 void cfg_set_ex(const slime_cfg_t *in, bool persist);
 /* Incremented on every cfg_set(); cheap to poll each frame. */
 uint32_t cfg_gen(void);
+
+/* Where the computer side (bridge/slime_brain.py) finds its language model and speech-to-text
+ * service. The device only keeps these strings so that the web panel is the one place to set
+ * them; it never calls the services itself. Stored as separate NVS strings, not in slime_cfg_t.
+ * Only the web server task reads or writes them. */
+typedef enum { AI_LLM_URL, AI_LLM_MODEL, AI_LLM_KEY, AI_STT_URL, AI_STT_MODEL, AI_STT_KEY, AI_FIELD_COUNT } ai_field_t;
+#define AI_VALUE_MAX 200 /* longest value of any field, without the NUL */
+const char *ai_field_name(ai_field_t f); /* JSON name, e.g. "llm_url" */
+bool ai_field_secret(ai_field_t f);      /* API keys: never sent back without the update token */
+const char *ai_get(ai_field_t f);        /* "" when unset */
+/* Empty clears it. ESP_ERR_INVALID_ARG: too long, control characters, or a URL that is not http(s). */
+esp_err_t ai_set(ai_field_t f, const char *val);

@@ -351,7 +351,9 @@ def say(mood, text):
 
 def run():
     lock = single_instance()  # noqa: F841  (held until exit)
-    log("slime buddy: model %s, speech %s, memory %s" % (brain.LLM_URL, brain.STT_URL, brain.HOME))
+    log("slime buddy: memory %s" % brain.HOME)
+    for line in brain.describe_settings():
+        log("  " + line)
     rules, st, voice_seen = Rules(), None, None
     next_rules, next_diary, last_line, offline_logged = 0, 0, 0, False
     while True:

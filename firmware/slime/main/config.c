@@ -63,6 +63,54 @@ static void sanitize(slime_cfg_t *c)
     c->lang = clamp8(c->lang, 0, 1);
 }
 
+/* ---- AI endpoints for the bridge: plain NVS strings next to the settings blob ---- */
+
+static const struct {
+    const char *name, *key; /* JSON name, NVS key */
+    uint8_t max;
+    bool url, secret;
+} AI_FIELDS[AI_FIELD_COUNT] = {
+    [AI_LLM_URL] = {"llm_url", "ai_lurl", 128, true, false},
+    [AI_LLM_MODEL] = {"llm_model", "ai_lmodel", 64, false, false},
+    [AI_LLM_KEY] = {"llm_key", "ai_lkey", AI_VALUE_MAX, false, true},
+    [AI_STT_URL] = {"stt_url", "ai_surl", 128, true, false},
+    [AI_STT_MODEL] = {"stt_model", "ai_smodel", 64, false, false},
+    [AI_STT_KEY] = {"stt_key", "ai_skey", AI_VALUE_MAX, false, true},
+};
+static char s_ai[AI_FIELD_COUNT][AI_VALUE_MAX + 1];
+
+static void ai_load(nvs_handle_t h)
+{
+    for (int f = 0; f < AI_FIELD_COUNT; f++) {
+        size_t len = sizeof s_ai[f];
+        if (nvs_get_str(h, AI_FIELDS[f].key, s_ai[f], &len) != ESP_OK) s_ai[f][0] = 0;
+    }
+}
+
+const char *ai_field_name(ai_field_t f) { return AI_FIELDS[f].name; }
+bool ai_field_secret(ai_field_t f) { return AI_FIELDS[f].secret; }
+const char *ai_get(ai_field_t f) { return s_ai[f]; }
+
+esp_err_t ai_set(ai_field_t f, const char *val)
+{
+    if (strlen(val) > AI_FIELDS[f].max) return ESP_ERR_INVALID_ARG;
+    for (const char *p = val; *p; p++) {
+        if ((unsigned char)*p < 0x20 || *p == 0x7f) return ESP_ERR_INVALID_ARG;
+    }
+    if (AI_FIELDS[f].url && val[0] && strncmp(val, "http://", 7) && strncmp(val, "https://", 8)) return ESP_ERR_INVALID_ARG;
+    if (!strcmp(val, s_ai[f])) return ESP_OK;
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("slime", NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    e = val[0] ? nvs_set_str(h, AI_FIELDS[f].key, val) : nvs_erase_key(h, AI_FIELDS[f].key);
+    if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK; /* clearing what was never stored */
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    if (e == ESP_OK) strlcpy(s_ai[f], val, sizeof s_ai[f]);
+    else ESP_LOGW(TAG, "saving %s failed", AI_FIELDS[f].name);
+    return e;
+}
+
 esp_err_t cfg_init(void)
 {
     s_cfg = DEFAULTS;
@@ -74,6 +122,7 @@ esp_err_t cfg_init(void)
     if (e != ESP_OK) return e;
     nvs_handle_t h;
     if (nvs_open("slime", NVS_READONLY, &h) != ESP_OK) return ESP_OK; /* first boot */
+    ai_load(h);
     blob_t b;
     size_t len = sizeof b;
     if (nvs_get_blob(h, "cfg", &b, &len) == ESP_OK && len >= 2 && b.version >= 1 && b.version <= CFG_VERSION) {

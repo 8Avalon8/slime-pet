@@ -254,12 +254,26 @@ def answer(question, now=None):
     return brain.speak(system, user, max_chars=48, max_tokens=200)
 
 
+def send_line(line, tries=3):
+    """A line for the pet's dialog. Its web server answers one request at a time and can be busy
+    for a few seconds (a recording being fetched, the camera coming up): wait and try again
+    instead of giving up on the first timeout."""
+    for attempt in range(tries):
+        try:
+            return brain.device_cmd(line, timeout=4)
+        except OSError as e:  # URLError and timeouts included
+            if attempt == tries - 1:
+                raise
+            log("device busy (%s); sending again" % e)
+            time.sleep(1)
+
+
 def talk(mood, text):
     """Show an answer on the pet, a dialog line at a time."""
     for i, line in enumerate(chunks(text)):
         if i:
             time.sleep(2.0 + len(line) / 24)  # typewriter speed is 24 characters per second
-        brain.device_cmd("talk %s %s\n" % (mood, line))
+        send_line("talk %s %s\n" % (mood, line))
 
 
 def handle_voice(seq):
@@ -272,11 +286,11 @@ def handle_voice(seq):
         text = brain.transcribe(wav)
     except Exception as e:
         log("voice: speech to text failed:", e)
-        brain.device_cmd("talk worried %s\n" % tr("听不懂……语音识别没连上", "Can't understand... no speech-to-text"))
+        send_line("talk worried %s\n" % tr("听不懂……语音识别没连上", "Can't understand... no speech-to-text"))
         return
     log("voice: heard", repr(text))
     if not text:
-        brain.device_cmd("talk worried %s\n" % tr("没听清，再说一遍？", "Didn't catch that, say it again?"))
+        send_line("talk worried %s\n" % tr("没听清，再说一遍？", "Didn't catch that, say it again?"))
         return
     try:
         got = answer(text)
@@ -372,7 +386,10 @@ def run():
             voice_seen = voice.get("seq", 0)  # recordings made before we started are not ours
         if voice.get("ready") and voice.get("seq", 0) != voice_seen:
             voice_seen = voice["seq"]
-            handle_voice(voice_seen)
+            try:
+                handle_voice(voice_seen)
+            except Exception as e:  # the pet went away mid-answer: this conversation is lost, the buddy is not
+                log("voice: gave up on this one:", e)
             last_line = time.time()
         away = rules.observe(st, now)
         if now >= next_rules or away:

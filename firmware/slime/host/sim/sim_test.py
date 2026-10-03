@@ -176,6 +176,20 @@ def run():
     v = json.loads(http("/api/config"))["volume"]
     (print("ok    config round trip") if v == 30 else (failures.append("config round trip"), print("FAIL  config round trip")))
 
+    # the bridge's AI endpoints: a saved key only comes back with the update token ("simulator" here),
+    # and changing the address without a key drops the old key
+    http("/api/ai", json.dumps({"llm_url": "http://localhost:1234/v1", "llm_model": "m", "llm_key": "sk-test"}))
+    plain = json.loads(http("/api/ai"))
+    req = urllib.request.Request(BASE + "/api/ai", headers={"X-OTA-Token": "simulator"})
+    with urllib.request.urlopen(req, timeout=3) as r:
+        trusted = json.load(r)
+    http("/api/ai", json.dumps({"llm_url": "http://localhost:9/v1"}))
+    moved = json.loads(http("/api/ai"))
+    ok = (plain.get("llm_key_set") is True and "llm_key" not in plain and plain.get("llm_model") == "m"
+          and trusted.get("llm_key") == "sk-test" and moved.get("llm_key_set") is False)
+    (print("ok    AI settings: key hidden without the token") if ok
+     else (failures.append("AI settings"), print("FAIL  AI settings: %r %r %r" % (plain, trusted, moved))))
+
 
 if __name__ == "__main__":
     sys.exit(main())

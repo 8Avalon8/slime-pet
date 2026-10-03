@@ -96,6 +96,8 @@ export SLIME_LLM_MODEL=deepseek-chat
 export SLIME_LLM_KEY=sk-...
 ```
 
+这三项（以及下面语音转文字的地址、模型和 Key）更方便的填法是网页面板：打开 `http://slime.local/` 的“AI 设置”，保存后电脑端的钩子和 buddy 会自动从设备读取，不用再配环境变量；设置了环境变量时以环境变量为准。API Key 保存后面板不会再显示，电脑端凭 `bridge/.ota_token`（第一次无线更新时取到的更新口令）才能读到；它在局域网里是明文传输的，只在信得过的网络里填。`python3 bridge/slime_brain.py config` 可以看当前每一项的值来自哪里。
+
 注意：这时每轮的精简摘要（你的请求前 300 字、最近几次工具操作、Claude 最后一句回复的前 600 字）会发给该服务商。不含文件内容和工具输出。
 
 **记忆、主动陪伴和语音对话**（可选）：钩子会把每个事件记到 `bridge/.slime/journal/`（只在本机，保留 60 天），点评会参考这些记录养成的性格。主动陪伴、日记和语音对话需要另开一个终端常驻运行（Windows / macOS / Linux 都行，只用标准库，走 Wi-Fi）：

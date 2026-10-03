@@ -225,6 +225,68 @@ static esp_err_t h_config_post(httpd_req_t *req)
     return send_config(req);
 }
 
+/* The bridge's language model and speech-to-text endpoints (see config.h). API keys are write-only
+ * for the panel: a GET shows whether one is set, and returns it only to a caller that has the
+ * update token (the bridge reads bridge/.ota_token). */
+static esp_err_t send_ai(httpd_req_t *req)
+{
+    char tok[24];
+    const bool trusted = ota_token()[0] && httpd_req_get_hdr_value_str(req, "X-OTA-Token", tok, sizeof tok) == ESP_OK &&
+                         !strcmp(tok, ota_token());
+    cJSON *o = cJSON_CreateObject();
+    for (int f = 0; f < AI_FIELD_COUNT; f++) {
+        const char *name = ai_field_name(f), *val = ai_get(f);
+        if (ai_field_secret(f)) {
+            char set[24];
+            snprintf(set, sizeof set, "%s_set", name);
+            cJSON_AddBoolToObject(o, set, val[0] != 0);
+            if (!trusted) continue;
+        }
+        cJSON_AddStringToObject(o, name, val);
+    }
+    char *s = cJSON_PrintUnformatted(o);
+    cJSON_Delete(o);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    const esp_err_t e = send_json(req, s ? s : "{}");
+    if (s) memset(s, 0, strlen(s));
+    cJSON_free(s);
+    return e;
+}
+
+static esp_err_t h_ai_get(httpd_req_t *req) { return send_ai(req); }
+
+static esp_err_t h_ai_post(httpd_req_t *req)
+{
+    char body[BODY_MAX * 2]; /* six fields of up to AI_VALUE_MAX */
+    if (read_body(req, body, sizeof body) != ESP_OK) return ESP_FAIL;
+    cJSON *o = cJSON_Parse(body);
+    memset(body, 0, sizeof body);
+    const char *bad = cJSON_IsObject(o) ? NULL : "expected a JSON object";
+    for (int f = 0; f < AI_FIELD_COUNT && !bad; f++) {
+        const cJSON *v = cJSON_GetObjectItem(o, ai_field_name(f));
+        if (v && !cJSON_IsString(v)) bad = "values must be strings";
+    }
+    /* A key belongs to the service it was entered for: when the address changes and no key comes
+     * with it, the old key is dropped, so that nobody on the network can redirect it elsewhere. */
+    static const struct { ai_field_t url, key; } PAIRS[] = {{AI_LLM_URL, AI_LLM_KEY}, {AI_STT_URL, AI_STT_KEY}};
+    for (size_t i = 0; i < sizeof PAIRS / sizeof PAIRS[0] && !bad; i++) {
+        const cJSON *u = cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].url));
+        if (u && strcmp(u->valuestring, ai_get(PAIRS[i].url)) && !cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].key))) {
+            ai_set(PAIRS[i].key, "");
+        }
+    }
+    for (int f = 0; f < AI_FIELD_COUNT && !bad; f++) {
+        const cJSON *v = cJSON_GetObjectItem(o, ai_field_name(f));
+        if (!v) continue;
+        const esp_err_t e = ai_set(f, v->valuestring);
+        if (e == ESP_ERR_INVALID_ARG) bad = "too long, or an address that does not start with http:// or https://";
+        else if (e != ESP_OK) bad = "could not save";
+    }
+    cJSON_Delete(o);
+    if (bad) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, bad);
+    return send_ai(req);
+}
+
 /* Debug: what the face detector sees, as a BMP (BGR888 rows bottom-up, 4-byte padded). */
 static esp_err_t h_cam(httpd_req_t *req)
 {
@@ -326,6 +388,8 @@ esp_err_t web_start(void)
         {.uri = "/api/voice.wav", .method = HTTP_GET, .handler = h_voice},
         {.uri = "/api/ota", .method = HTTP_POST, .handler = ota_http_handler},
         {.uri = "/api/sfxr", .method = HTTP_POST, .handler = h_sfxr_post},
+        {.uri = "/api/ai", .method = HTTP_GET, .handler = h_ai_get},
+        {.uri = "/api/ai", .method = HTTP_POST, .handler = h_ai_post},
     };
     for (size_t i = 0; i < sizeof uris / sizeof uris[0]; i++) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(srv, &uris[i]), TAG, "uri %s", uris[i].uri);

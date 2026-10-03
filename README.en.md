@@ -96,6 +96,8 @@ export SLIME_LLM_MODEL=deepseek-chat
 export SLIME_LLM_KEY=sk-...
 ```
 
+An easier place for these three values (and the speech-to-text address, model and key below) is the web panel: open "AI settings" at `http://slime.local/`. Once saved, the hook and the buddy read them from the device, with no environment variables needed; an environment variable still wins when set. The panel never shows a saved API key again, and the computer side can only read it with `bridge/.ota_token` (the update token fetched on the first wireless update). The key travels unencrypted on your network, so enter it only on a network you trust. `python3 bridge/slime_brain.py config` shows where each value currently comes from.
+
 Note that each turn's condensed summary (the first 300 characters of your request, the last few tool calls, and the first 600 characters of Claude's last reply) then goes to that provider. File contents and tool output are never included.
 
 **Memory, proactive lines and voice chat** (optional): the hook logs every event to `bridge/.slime/journal/` (on this computer only, kept for 60 days), and the comments follow the personality those records shape. Proactive lines, the diary and voice chat need a resident process in another terminal (Windows, macOS or Linux; stdlib only; over Wi-Fi):

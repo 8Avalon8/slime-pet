@@ -23,6 +23,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 INDEX = os.path.join(HERE, "..", "firmware", "slime", "main", "web", "index.html")
 
+# The bridge's model endpoints (config.c AI_FIELDS, web.c h_ai_*): keys only go out with the update token
+AI = {"llm_url": "", "llm_model": "", "llm_key": "", "stt_url": "", "stt_model": "", "stt_key": ""}
+AI_MAX = {"llm_url": 128, "llm_model": 64, "llm_key": 200, "stt_url": 128, "stt_model": 64, "stt_key": 200}
+OTA_TOKEN = "simulator"
+
+
+def ai_view(trusted):
+    out = {}
+    for k, v in AI.items():
+        if k.endswith("_key"):
+            out[k + "_set"] = bool(v)
+            if not trusted:
+                continue
+        out[k] = v
+    return out
+
+
 # firmware/slime/main/config.c DEFAULTS
 CONFIG = {
     "screen_bright": 100, "sleep_bright": 25, "led_bright": 128, "idle_breath": True, "motor": True,
@@ -130,6 +147,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, json.dumps(status(), ensure_ascii=False))
         elif path == "/api/config":
             self.send(200, json.dumps(CONFIG))
+        elif path == "/api/ai":
+            self.send(200, json.dumps(ai_view(self.headers.get("X-OTA-Token") == OTA_TOKEN)))
         elif path == "/api/sfxr":
             self.send(200, json.dumps({"slots": [{"name": n, "custom": False} for n in SFX]}))
         elif path == "/api/head":
@@ -149,6 +168,23 @@ class Handler(BaseHTTPRequestHandler):
                 apply_line(line)
                 queued += 1
             self.send(200, json.dumps({"queued": queued}))
+        elif path == "/api/ai":
+            try:
+                o = json.loads(data or b"{}")
+            except ValueError:
+                return self.send(400, "expected a JSON object", "text/plain")
+            if not isinstance(o, dict) or any(not isinstance(o[k], str) for k in o if k in AI):
+                return self.send(400, "values must be strings", "text/plain")
+            for url, key in (("llm_url", "llm_key"), ("stt_url", "stt_key")):  # same rule as web.c
+                if url in o and o[url] != AI[url] and key not in o:
+                    AI[key] = ""
+            for k in AI:
+                if k not in o:
+                    continue
+                if len(o[k]) > AI_MAX[k] or (k.endswith("_url") and o[k] and not o[k].startswith(("http://", "https://"))):
+                    return self.send(400, "too long, or an address that does not start with http:// or https://", "text/plain")
+                AI[k] = o[k]
+            self.send(200, json.dumps(ai_view(False)))
         elif path == "/api/config":
             try:
                 o = json.loads(data or b"{}")

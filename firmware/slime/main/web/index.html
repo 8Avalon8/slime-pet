@@ -184,6 +184,21 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
     <div class="note">每点一次生成按钮都会随机出一个新音效并立刻播放。想精调可以去 <a href="https://sfxr.me/" target="_blank" rel="noopener" style="color:var(--blue)">sfxr.me</a>（jsfxr）调好，再把导出的 JSON 贴进来。替换后的音效存在设备里，重启也在。</div>
   </section>
 
+  <section class="win span2">
+    <h2>AI 设置</h2>
+    <form class="form" id="ai" autocomplete="off">
+      <input type="text" name="llm_url" placeholder="模型接口地址（留空：http://localhost:1234/v1）" maxlength="128">
+      <input type="text" name="llm_model" placeholder="模型名（留空：gemma-4-e4b-it）" maxlength="64">
+      <input type="password" name="llm_key" placeholder="API Key（本地模型不用填）" maxlength="200" autocomplete="new-password">
+      <input type="text" name="stt_url" placeholder="语音转文字地址（留空：同模型接口）" maxlength="128">
+      <input type="text" name="stt_model" placeholder="语音转文字模型（留空：whisper-1）" maxlength="64">
+      <input type="password" name="stt_key" placeholder="语音转文字 Key（留空：同上面的 Key）" maxlength="200" autocomplete="new-password">
+      <button type="submit">保存</button>
+    </form>
+    <div class="note" id="aikeys"></div>
+    <div class="note">AI 点评、主动陪伴和语音对话用的模型接口（OpenAI 兼容）。这些只是存在史莱姆里，电脑上的 slime_hook.py 和 slime_buddy.py 会来读；电脑上设置了 SLIME_LLM_URL 等环境变量时以环境变量为准。API Key 保存后不会再显示，在局域网里是明文传输的，和 Wi-Fi 密码一样只在信得过的网络里填。改了接口地址而没有重新填 Key，原来的 Key 会被清掉。</div>
+  </section>
+
   <section class="win">
     <h2>WI-FI</h2>
     <form class="form" id="wifi" autocomplete="off">
@@ -223,6 +238,15 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '每点一次生成按钮都会随机出一个新音效并立刻播放。想精调可以去':'Each click on a generator makes a new random sound and plays it. To fine-tune, use',
   '（jsfxr）调好，再把导出的 JSON 贴进来。替换后的音效存在设备里，重启也在。':' (jsfxr) and paste the exported JSON here. Replaced sounds are stored on the device and survive reboots.',
   '点上面的按钮随机生成，或者把 jsfxr 网站导出的 JSON 粘贴到这里':'Click a button above to generate one, or paste JSON exported from jsfxr here',
+  'AI 设置':'AI SETTINGS',
+  '保存':'Save',
+  '模型接口地址（留空：http://localhost:1234/v1）':'Model API address (blank: http://localhost:1234/v1)',
+  '模型名（留空：gemma-4-e4b-it）':'Model name (blank: gemma-4-e4b-it)',
+  'API Key（本地模型不用填）':'API key (not needed for a local model)',
+  '语音转文字地址（留空：同模型接口）':'Speech-to-text address (blank: same as the model API)',
+  '语音转文字模型（留空：whisper-1）':'Speech-to-text model (blank: whisper-1)',
+  '语音转文字 Key（留空：同上面的 Key）':'Speech-to-text key (blank: same as the key above)',
+  'AI 点评、主动陪伴和语音对话用的模型接口（OpenAI 兼容）。这些只是存在史莱姆里，电脑上的 slime_hook.py 和 slime_buddy.py 会来读；电脑上设置了 SLIME_LLM_URL 等环境变量时以环境变量为准。API Key 保存后不会再显示，在局域网里是明文传输的，和 Wi-Fi 密码一样只在信得过的网络里填。改了接口地址而没有重新填 Key，原来的 Key 会被清掉。':'The OpenAI-compatible model API used for AI comments, the buddy and voice chat. The slime only stores these; slime_hook.py and slime_buddy.py on the computer read them, and environment variables such as SLIME_LLM_URL on the computer take precedence. A saved API key is never shown again; it travels unencrypted on your network, so enter it only on a network you trust, like the Wi-Fi password. Changing an address without entering its key again clears the old key.',
   '网络名称（仅 2.4 GHz）':'Network name (2.4 GHz only)','密码':'Password','连接':'Connect',
   '切换网络后本页会断开，到新网络里打开 http://slime.local 。面板没有登录保护，只在局域网内使用。':
     'This page disconnects when the network changes; open http://slime.local on the new network. The panel has no login: use it only on your own network.'};
@@ -238,7 +262,7 @@ function applyLang(){
   document.querySelectorAll('[placeholder]').forEach(el=>{if(el.dataset.zh===undefined)el.dataset.zh=el.placeholder;el.placeholder=LANG?(EN_TEXT[el.dataset.zh]||el.dataset.zh):el.dataset.zh});
   document.title=LANG?EN_TEXT[TITLE_ZH]:TITLE_ZH;
   document.querySelectorAll('input[type=range]').forEach(showVal);
-  buildButtons();sfxSlots();
+  buildButtons();sfxSlots();aiLoad();
 }
 function setLang(l){l=l?1:0;if(l===LANG)return;LANG=l;try{localStorage.setItem('lang',l)}catch(e){}applyLang()}
 const ZH = {idle:'发呆',greet:'开心',pokeL:'被戳',pokeR:'被戳',dizzy:'头晕',sleep:'睡觉',think:'思考',wait:'等你确认',levelup:'升级',hurt:'受伤',charge:'吃电',melt:'化掉',metal:'金属化',work:'干活'};
@@ -365,6 +389,15 @@ $('sfxset').onclick=()=>{const p=sfxParams();if(!p)return;const s=$('sfxslot').v
 $('sfxreset').onclick=()=>{const s=$('sfxslot').value;
   sfxPost({slot:s,reset:true}).then(()=>{toast(T('「'+sfxName(s)+'」已恢复原版','"'+sfxName(s)+'" restored'));sfxSlots()}).catch(()=>toast(T('失败','Failed')))};
 $('quick').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c}).then(()=>toast(e.target.textContent))});
+const AI_KEYS=['llm_key','stt_key'];
+function aiShow(c){const f=$('ai');for(const el of f.elements){if(!el.name)continue;if(AI_KEYS.includes(el.name))el.value='';else el.value=c[el.name]||''}
+  $('aikeys').innerHTML=AI_KEYS.map(k=>(k==='llm_key'?'API Key':T('语音转文字 Key','Speech-to-text key'))+T('：',': ')+(c[k+'_set']?T('已保存','saved')+` <button type="button" data-clear="${k}">${T('清除','Clear')}</button>`:T('未设置','not set'))).join(' · ')}
+async function aiLoad(){try{aiShow(await (await fetch('/api/ai',{cache:'no-store'})).json())}catch(e){}}
+async function aiPost(o){const r=await fetch('/api/ai',{method:'POST',body:JSON.stringify(o)});if(!r.ok)throw new Error(await r.text());aiShow(await r.json())}
+$('ai').addEventListener('submit',async e=>{e.preventDefault();const o={};
+  for(const el of e.target.elements){if(!el.name)continue;const v=el.value.trim();if(AI_KEYS.includes(el.name)){if(v)o[el.name]=v}else o[el.name]=v}
+  try{await aiPost(o);toast(T('已保存','Saved'))}catch(x){toast(T('保存失败：地址要以 http:// 或 https:// 开头','Save failed: addresses must start with http:// or https://'))}});
+$('aikeys').addEventListener('click',async e=>{const k=e.target.dataset.clear;if(!k)return;try{await aiPost({[k]:''});toast(T('已清除','Cleared'))}catch(x){toast(T('失败','Failed'))}});
 $('wifi').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);
   try{const r=await fetch('/api/wifi',{method:'POST',body:JSON.stringify({ssid:f.get('ssid'),psk:f.get('psk')||''})});if(!r.ok)throw 0;e.target.psk.value='';toast(T('正在切换网络…','Switching networks…'))}catch(x){toast(T('提交失败','Submit failed'))}});
 let camT=null;

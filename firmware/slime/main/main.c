@@ -1070,7 +1070,6 @@ static void camera_watch(brain_t *b, sl_anim_t *a, const vision_state_t *vs, dou
 #define SLOT_SETTLE_S 20   /* after boot the modules are found one by one: that is not news */
 #endif
 #define SLOT_STABLE_S 1.0  /* a module being pushed in can come and go for a moment */
-#define SLOT_NEWS_S 20     /* busy for longer than this: the change is no longer worth mentioning */
 
 /* A module was plugged in or pulled out: the slime says what it gained or lost. */
 static void slot_watch(brain_t *b, sl_anim_t *a, double now)
@@ -1086,18 +1085,20 @@ static void slot_watch(brain_t *b, sl_anim_t *a, double now)
         }
         const int was = b->slot_known[i];
         if (cur == was) continue;
-        if (now < SLOT_SETTLE_S || now - b->slot_seen_t[i] > SLOT_NEWS_S) {
+        if (now < SLOT_SETTLE_S) {
             b->slot_known[i] = cur; /* taken note of, silently */
             continue;
         }
         if (now - b->slot_seen_t[i] < SLOT_STABLE_S) continue;
-        if (!calm_state(a->state) || a->state == SL_SLEEP || b->listening || b->voice_wait_until) continue; /* in a moment */
+        /* busy or asleep: it says so once it is calm again (and says nothing if things are back as they were by then) */
+        if (!calm_state(a->state) || a->state == SL_SLEEP || b->listening || b->voice_wait_until) continue;
         b->slot_known[i] = cur;
         b->last_activity = now; /* someone is right here */
         const int what = cur != SLOT_EMPTY ? cur : was;
         const char *msg;
         if (cur != SLOT_EMPTY) {
-            msg = what == SLOT_CAMERA ? b->cfg.camera ? SL_TR("哇，眼睛装上啦！\n马上就能看见你了～", "Ooh, I got my eye!\nI'll see you in a moment~")
+            msg = what == SLOT_CAMERA && i ? SL_TR("眼睛装上啦！\n不过要插在左边才看得见哦", "I got my eye!\nBut it only works on the left")
+                  : what == SLOT_CAMERA ? b->cfg.camera ? SL_TR("哇，眼睛装上啦！\n马上就能看见你了～", "Ooh, I got my eye!\nI'll see you in a moment~")
                                                       : SL_TR("眼睛装上啦！\n不过摄像头在设置里还关着哦", "I got my eye!\nBut the camera is off in Settings")
                   : what == SLOT_INTERACT ? SL_TR("按键和彩灯接上啦！\n快来戳戳我～", "Buttons and lights are on!\nCome and poke me~")
                                           : SL_TR("咦，插了个新模块？\n我还不认识它呢", "Oh, a new module?\nI don't know this one yet");

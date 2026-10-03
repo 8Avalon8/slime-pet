@@ -8,6 +8,10 @@
 
 ![史莱姆的各种状态](docs/images/states.png)
 
+| 屏幕界面：设置菜单 / 等你批准 / 命令出错受伤 / 完成任务 | Claude 派出子代理时，身边蹦出小分身 |
+|:---:|:---:|
+| <img src="docs/images/screens.png" alt="屏幕界面" width="400"> | <img src="docs/images/helper-slimes.png" alt="子代理小分身" width="600"> |
+
 > 想用 AI 编程助手做一个自己的版本？看 [docs/PROMPTS.md](docs/PROMPTS.md)：按阶段整理的复刻提示词，附带每一步的验收标准和我们踩过的坑。
 
 ## 能做什么

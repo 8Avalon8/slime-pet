@@ -8,6 +8,10 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 
 ![The slime's states](docs/images/states.png)
 
+| On-screen UI: settings / awaiting approval / hurt by a failed command / task done | Helper slimes pop out when Claude spawns subagents |
+|:---:|:---:|
+| <img src="docs/images/screens.png" alt="On-screen UI" width="400"> | <img src="docs/images/helper-slimes.png" alt="Helper slimes" width="600"> |
+
 > Want to build your own with an AI coding agent? See [docs/PROMPTS.en.md](docs/PROMPTS.en.md): staged prompts with acceptance checks and the pitfalls we hit.
 
 ## Features

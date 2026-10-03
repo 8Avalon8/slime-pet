@@ -19,7 +19,22 @@ endforeach()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(slime_pet)
 
-# esp-sr asks esp-dl to compile only the operators its own models use. The face detector
-# (human_face_detect) makes no such request, so its model would lose Concat and others and fail
-# to load. Dropping the request brings back esp-dl's default: every operator is compiled.
-idf_build_set_property(ESPDL_COMPILE_REQS "")
+# esp-dl compiles only the operators that components ask for. esp-sr asks for those of the wake
+# word model; the face detector (human_face_detect) asks for nothing, so without this its model
+# would lose Concat and others, fail to load, and the device would restart in a loop. Add its
+# operators to the request (see tools/gen_espdl_req.py): the firmware gets the union of the two.
+idf_build_get_property(slime_components BUILD_COMPONENTS)
+if("espressif__esp-dl" IN_LIST slime_components)
+    idf_component_get_property(slime_espdl_dir espressif__esp-dl COMPONENT_DIR)
+    idf_build_get_property(slime_python PYTHON)
+    set(slime_espdl_req "${CMAKE_BINARY_DIR}/espdl_face_req.yml")
+    execute_process(
+        COMMAND ${slime_python} "${CMAKE_CURRENT_LIST_DIR}/tools/gen_espdl_req.py"
+                "${slime_espdl_dir}/spec/kernels.yml" "${slime_espdl_req}"
+        RESULT_VARIABLE rc)
+    if(NOT rc EQUAL 0)
+        message(FATAL_ERROR "slime: could not write ${slime_espdl_req}")
+    endif()
+    idf_build_set_property(ESPDL_COMPILE_REQS "${slime_espdl_req}" APPEND)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/tools/gen_espdl_req.py")
+endif()

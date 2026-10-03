@@ -1337,71 +1337,6 @@ static int common_prefix(const char *x, const char *y)
     return n;
 }
 
-
-#define PERF_PROBE 0
-#if PERF_PROBE
-#include "esp_cpu.h"
-static volatile float s_sink;
-/* One-shot micro benchmarks: cycles per operation, logged at boot. */
-static void perf_probe(void)
-{
-    enum { N = 20000 };
-    static uint16_t iram_buf[N];
-    uint16_t *psram_buf = heap_caps_malloc(N * 2, MALLOC_CAP_SPIRAM);
-    sg_rgb_t c = {0.3f, 0.5f, 0.8f};
-    uint32_t t0, t;
-    float acc = 0;
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) iram_buf[i] = sg_pack(c, i, i >> 5);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sg_pack->internal  %5.1f cyc/px", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) psram_buf[i] = sg_pack(c, i, i >> 5);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sg_pack->PSRAM     %5.1f cyc/px", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) psram_buf[i] = (uint16_t)i;
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe plain store PSRAM  %5.1f cyc/px", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) acc += sqrtf((float)i + acc * 1e-9f);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sqrtf              %5.1f cyc", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) acc += 1.0f / ((float)i + 1.5f);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe fdiv               %5.1f cyc", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) acc += sinf((float)i * 0.001f);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sinf               %5.1f cyc", (float)t / N);
-
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) {
-        const sg_rgb_t d = sg_lerp(c, (sg_rgb_t){1, 1, 1}, (float)(i & 255) / 255.0f);
-        acc += d.r + d.g + d.b;
-    }
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sg_lerp            %5.1f cyc", (float)t / N);
-
-    sg_canvas_t pc;
-    sg_canvas_init(&pc, s_fb, SCR, SCR, SCR);
-    t0 = esp_cpu_get_cycle_count();
-    for (int i = 0; i < N; i++) sg_blend(&pc, i % SCR, 100 + (i / SCR) % 50, c, 0.5f);
-    t = esp_cpu_get_cycle_count() - t0;
-    ESP_LOGI(TAG, "probe sg_blend 50%% PSRAM %5.1f cyc/px", (float)t / N);
-
-    s_sink = acc;
-    free(psram_buf);
-}
-#endif
-
 static void render_part(sg_canvas_t *cv, const sl_pose_t *p, sl_rect_t d)
 {
     double t0 = now_s();
@@ -1473,10 +1408,6 @@ void app_main(void)
     cc_init(&s_b.cc);
     sl_render_init();
     sl_render_set_clock(now_s);
-#if PERF_PROBE
-    vTaskDelay(pdMS_TO_TICKS(2500)); /* give the host time to open the USB console */
-    perf_probe();
-#endif
 
     sg_canvas_t cv; /* full-frame canvas for HUD, dialog and overlays (main core only) */
     sg_canvas_init(&cv, s_fb, SCR, SCR, SCR);

@@ -355,6 +355,7 @@ static void voice_start(brain_t *b, sl_anim_t *a, double now, bool handsfree);
 static bool night_now(const brain_t *b)
 {
     struct tm tm;
+    if (!b->cfg.quiet) return false;
     const int s = b->cfg.night_start, e = b->cfg.night_end;
     if (s == e || !net_local_time(&tm)) return false;
     const int h = tm.tm_hour;

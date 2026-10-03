@@ -127,6 +127,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
         <div class="row"><label>拍手灵敏度</label><input type="range" min="1" max="10" data-k="clap_sens"><output></output></div>
         <div class="row"><label>久坐提醒</label><input type="range" min="0" max="120" step="10" data-k="sit_min" data-unit="分"><output></output></div>
         <div class="row"><label>专注时长</label><input type="range" min="5" max="90" step="5" data-k="focus_min" data-unit="分"><output></output></div>
+        <div class="checks"><label><input type="checkbox" data-k="quiet">夜间勿扰：到点后不出声、不亮灯、屏幕变暗</label></div>
         <div class="row"><label>勿扰开始</label><input type="range" min="0" max="23" data-k="night_start" data-unit="点"><output></output></div>
         <div class="row"><label>勿扰结束</label><input type="range" min="0" max="23" data-k="night_end" data-unit="点"><output></output></div>
         <div class="row"><label>朗读音调</label><input type="range" min="80" max="150" step="5" data-k="speak_pitch" data-unit="%"><output></output></div>
@@ -159,7 +160,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
       <button data-c="focus start">开始专注</button>
       <button data-c="focus stop">结束专注</button>
     </div>
-    <div class="note">勿扰开始和结束设成同一个钟点就是关闭夜间勿扰。</div>
+    <div class="note">不想要夜间勿扰，把上面的“夜间勿扰”开关关掉就行。</div>
   </section>
 
   <section class="win">
@@ -220,11 +221,11 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '系统':'SYSTEM','帧率':'Frame rate','电池':'Battery','内存':'Memory','运行':'Uptime','最近重启':'Recent boots',
   '设置（改动即保存）':'SETTINGS (SAVED AS YOU CHANGE THEM)','屏幕亮度':'Screen brightness','睡觉时亮度':'Asleep brightness','彩灯亮度':'LED brightness',
   '自动睡眠':'Auto sleep','音量':'Volume','拍手灵敏度':'Clap sensitivity','久坐提醒':'Sitting reminder','专注时长':'Focus length',
-  '背景':'Background','自动（按时间）':'Auto (by the clock)','关闭':'Off','清晨':'Dawn','白天':'Day','黄昏':'Dusk','夜晚':'Night','勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
+  '背景':'Background','自动（按时间）':'Auto (by the clock)','关闭':'Off','清晨':'Dawn','白天':'Day','黄昏':'Dusk','夜晚':'Night','夜间勿扰：到点后不出声、不亮灯、屏幕变暗':'Quiet hours: no sound, no LEDs and a dimmer screen at night','勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
   '空闲呼吸灯':'Breathing LEDs when idle','震动':'Vibration','麦克风':'Microphone','跟着声音晃':'Bob to the sound','倾斜滑动':'Tilt to slide',
   '屏幕显示帧率':'Show FPS on screen','人脸检测：看着你、点头摇头、久坐提醒':'Face detection: eye contact, nod and shake, sitting reminder','手势识别：点赞、手掌等手势当指令（内存只够开一个：两个都开时只认手势）':'Hand gestures as commands: thumb up, open palm... (memory fits only one: with both on, only gestures run)','摄像头小窗常开':'Camera thumbnail always on','长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）':'Hold the AI key to talk to the slime (needs slime_buddy.py running on the computer)','AI 点评 Claude 的工作':'AI comments on Claude\'s work','喊“小龙小龙”唤醒，不用按键直接说话':'Say "Xiaolong Xiaolong" to talk without the key',
   '常用':'QUICK','开始专注':'Start focus','结束专注':'Stop focus',
-  '勿扰开始和结束设成同一个钟点就是关闭夜间勿扰。':'Set quiet hours to start and end at the same hour to turn them off.',
+  '不想要夜间勿扰，把上面的“夜间勿扰”开关关掉就行。':'To do without quiet hours, switch off "Quiet hours" above.',
   '让史莱姆演一下':'ACT IT OUT','手动切换的状态会保持 15 秒，并播放对应的音效（如果开着）。':'A state picked here lasts 15 seconds and plays its sound (if sound is on).',
   '音乐试听':'MUSIC','设备合成的 8-bit 音效与小曲（乐谱在 main/tunes_original.h，可以换成自己的）。背景音乐会被任何音效打断。':
     '8-bit sounds and tunes synthesized on the device (scores in main/tunes_original.h; you can swap in your own). Any sound effect interrupts the background tune.',

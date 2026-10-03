@@ -176,6 +176,10 @@ make test        # cc_track unit tests + pixel-exact check of the dual-core spli
 - The Wi-Fi password is set over USB (`wifi_setup.py`) or from the web panel; no interface reads it back and it never appears in logs.
 - Wireless updates need a token that is only available over USB; the device also checks that the image belongs to this project and verifies its SHA-256.
 
+## Community
+
+This project was first shared on the [LINUX DO](https://linux.do) community. Thanks to everyone there for the feedback and name suggestions.
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Third-party material (Noto Sans SC glyphs, the BSP patch) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).

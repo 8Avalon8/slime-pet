@@ -60,7 +60,7 @@ MOODS = ("happy", "proud", "worried", "neutral")
 
 BASE_PERSONA = (
     "你是一只住在桌面上的史莱姆宠物，正在看主人和 Claude Code 一起写代码。"
-    "说话是可爱的中文口语，具体、不说空话，不提 AI、模型或 Claude 以外的产品名。"
+    "说话是可爱的中文口语，具体、不说空话，不说自己是 AI 或模型。"
 )
 
 def _trust_system_certs():
@@ -368,7 +368,7 @@ def _parse(out, max_chars, en=False):
     return mood, text
 
 
-def speak(system, user, max_chars=LINE_MAX, max_tokens=120):
+def speak(system, user, max_chars=LINE_MAX, max_tokens=120, temperature=0.9):
     """Ask for {"text","mood"} and keep only what the pet can draw. (mood, text) or None.
     When the pet is set to English, the reply is English, plain ASCII, about twice as many characters."""
     en = lang() == "en"
@@ -380,7 +380,7 @@ def speak(system, user, max_chars=LINE_MAX, max_tokens=120):
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     mood, text, fewest = "neutral", "", None
     for attempt in range(3):
-        out = chat(messages, max_tokens=max_tokens)
+        out = chat(messages, max_tokens=max_tokens, temperature=temperature)
         if out is None:
             if fewest is None:
                 return None

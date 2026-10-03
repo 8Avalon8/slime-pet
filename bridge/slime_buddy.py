@@ -10,7 +10,8 @@ Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
   * Diary: after midnight it writes yesterday's diary to bridge/.slime/diary/YYYY-MM-DD.md.
   * Voice chat: hold the AI key on the pet and speak; the pet records, this process fetches the
     recording, turns it into text (SLIME_STT_*), answers in the slime's voice with what it
-    remembers (today's work, what each Claude session is doing, the last few exchanges), and
+    knows (date and weekday, its own status, today's work, what each Claude session is doing, the last
+    few exchanges, yesterday's diary, the weather when asked) and answers the question itself, and
     the pet shows the answer.
 
 Usage:
@@ -27,6 +28,8 @@ import os
 import socket
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slime_brain as brain  # noqa: E402
@@ -36,6 +39,7 @@ RULES_S = 10
 GAP_S = 180               # at least this long between two proactive lines
 LOCK_PORT = 47817         # one buddy per computer: a bound localhost port, released on exit
 VERBOSE = "-v" in sys.argv
+last_status = None        # the pet's latest /api/status, for what the slime knows about itself
 
 FALLBACK = {  # used when the model is unreachable
     "wait": ("worried", "Claude 还在等你点头哦"),
@@ -101,17 +105,126 @@ def sessions(events, now, limit=3):
     return out
 
 
-def context(now=None):
+WEEKDAYS = "一二三四五六日"
+
+
+def clock_text(now):
+    """'2026年10月3日 星期六（周末） 晚上 19:47'"""
+    lt = time.localtime(now)
+    h = lt.tm_hour
+    part = ("凌晨" if h < 5 else "早上" if h < 9 else "上午" if h < 12 else "中午" if h < 14
+            else "下午" if h < 18 else "晚上" if h < 23 else "深夜")
+    return "%d年%d月%d日 星期%s%s %s %s" % (lt.tm_year, lt.tm_mon, lt.tm_mday, WEEKDAYS[lt.tm_wday],
+                                      "（周末）" if lt.tm_wday >= 5 else "", part, time.strftime("%H:%M", lt))
+
+
+def device_facts(st):
+    """What the pet itself knows right now (its /api/status), as short sentences."""
+    if not st:
+        return []
+    out = []
+    if st.get("lv"):
+        out.append("你现在 %d 级，经验 %d/%d。" % (st["lv"], st.get("exp", 0), st.get("need", 0)))
+    bat = st.get("bat") or {}
+    if bat.get("ok"):
+        out.append("你的电量 %d%%%s。" % (bat.get("soc", 0), "，正在充电" if bat.get("chg") else ""))
+    if st.get("focus", 0) > 0:
+        out.append("主人开着专注计时，还剩 %d 分钟。" % max(1, st["focus"] // 60))
+    elif st.get("rest", 0) > 0:
+        out.append("专注刚结束，主人在休息，还剩 %d 分钟。" % max(1, st["rest"] // 60))
+    if st.get("night"):
+        out.append("现在是你的免打扰时段。")
+    cam = st.get("cam") or {}
+    if cam.get("on") and cam.get("ok"):
+        out.append("摄像头看到主人在电脑前。" if cam.get("face") else "摄像头现在没看到主人。")
+    return out
+
+
+def memories(events, now):
+    """Older things worth remembering: what the owner talked about earlier today and the latest diary."""
+    out = []
+    talked = [e.get("d", "") for e in events if e.get("ev") == "heard"
+              and brain._day(e["t"]) == brain._day(now) and now - e["t"] >= 1800][-4:]
+    if talked:
+        out.append("主人今天早些时候和你聊过：" + " / ".join(talked))
+    for k in (1, 2):
+        day = brain._day(now - k * 86400)
+        try:
+            with open(os.path.join(brain.DIARY_DIR, day + ".md"), encoding="utf-8") as f:
+                body = f.read().split("\n---", 1)[0]
+        except OSError:
+            continue
+        body = " ".join(l.strip() for l in body.splitlines() if l.strip() and not l.startswith("#"))
+        if body:
+            out.append("你%s的日记：%s" % ("昨天" if k == 1 else "前天", body[:160]))
+            break
+    return out
+
+
+# ---------------- weather (wttr.in: free, no key) ----------------
+
+WEATHER_WORDS = ("天气", "下雨", "下雪", "气温", "温度", "冷不冷", "热不热", "多少度", "带伞", "穿什么", "穿啥",
+                 "晴", "刮风", "雾霾", "weather", "rain", "temperature", "umbrella")
+_weather = (0, None)
+
+
+def weather(timeout=4):
+    """Today's and tomorrow's weather where the computer is, from wttr.in (cached 30 minutes).
+    SLIME_CITY picks the place (default: guessed from the IP), SLIME_WEATHER=0 turns it off. None if unavailable."""
+    global _weather
+    if os.environ.get("SLIME_WEATHER", "1") == "0":
+        return None
+    if time.time() - _weather[0] < 1800:
+        return _weather[1]
+    got = None
+    try:
+        city = urllib.parse.quote(os.environ.get("SLIME_CITY", ""))
+        req = urllib.request.Request("https://wttr.in/%s?format=j1&lang=zh" % city, headers={"User-Agent": "curl/8"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            got = weather_text(json.load(r))
+    except Exception as e:  # offline, blocked, or the format changed: chat goes on without it
+        vlog("weather:", e)
+    _weather = (time.time(), got)
+    return got
+
+
+def weather_text(data):
+    def desc(d):
+        for k in ("lang_zh", "weatherDesc"):
+            if d.get(k):
+                return d[k][0].get("value", "").strip()
+        return ""
+
+    cur = data["current_condition"][0]
+    area = (data.get("nearest_area") or [{}])[0]
+    place = ((area.get("areaName") or [{}])[0].get("value", "") if area else "")
+    parts = ["%s现在%s，%s°C，体感 %s°C，湿度 %s%%" % (place + "：" if place else "", desc(cur), cur["temp_C"],
+                                                cur["FeelsLikeC"], cur["humidity"])]
+    for name, day in zip(("今天", "明天"), data.get("weather", [])):
+        hourly = day.get("hourly") or []
+        rain = max((int(h.get("chanceofrain", 0)) for h in hourly), default=0)
+        mid = desc(hourly[len(hourly) // 2]) if hourly else ""
+        parts.append("%s%s，%s~%s°C，降雨概率最高 %d%%" % (name, mid, day["mintempC"], day["maxtempC"], rain))
+    return "；".join(parts) + "。"
+
+
+def context(now=None, st=None, question=""):
+    """(the last 7 days of events, what the slime knows as text). st: the pet's status, when known."""
     now = time.time() if now is None else now
     week = brain.journal_read(7, now)
     today = [e for e in week if brain._day(e["t"]) == brain._day(now)]
     s = brain.stats(today)
-    lines = ["现在是 %s。" % time.strftime("%H:%M", time.localtime(now)),
-             "今天：完成 %d 轮任务，工具 %d 次，失败 %d 次，主人发了 %d 条指令。"
-             % (s["tasks"], s["tools"], s["fails"], s["prompts"])]
+    lines = ["现在是 %s。" % clock_text(now)]
+    lines += device_facts(st)
+    if any(w in question.lower() for w in WEATHER_WORDS):
+        w = weather()
+        lines.append("天气：" + w if w else "天气：查不到（没联网或服务不可用），别编天气。")
+    lines.append("主人今天和 Claude 的工作：完成 %d 轮任务，工具 %d 次，失败 %d 次，发了 %d 条指令。"
+                 % (s["tasks"], s["tools"], s["fails"], s["prompts"]))
     if s["top"]:
         lines.append("今天用得最多的工具：" + "、".join("%s×%d" % kv for kv in s["top"]))
     lines += sessions(week, now)
+    lines += memories(week, now)
     return week, "\n".join(lines)
 
 
@@ -189,7 +302,7 @@ class Rules:
 
 def proactive_line(rule, situation):
     try:
-        events, ctx = context()
+        events, ctx = context(st=last_status)
         _, persona = brain.personality(events)
         said = brain.recent_said(events)
         system = (persona + "你要主动对主人说一句不超过 16 个汉字的话。"
@@ -239,19 +352,29 @@ def chunks(text, n=None):
     return merged
 
 
-def answer(question, now=None):
-    """(mood, text) for a spoken question."""
+CHAT_RULES = (
+    "主人在用语音和你聊天。规矩：\n"
+    "1. 主人问问题，第一句就直接回答问题本身，用你的常识认真答，答对比卖萌重要；"
+    "游戏、电影、书、产品、人名都可以正常说。\n"
+    "2. 时间、日期、星期、天气、你的状态以下面的信息为准；不知道就说不知道，别瞎编。\n"
+    "3. 问题和写代码无关时，别扯主人的工作，也别夸主人；性格只影响语气，不改变回答的内容。\n"
+    "4. 主人闲聊或说心情时，自然接话，可以用上下面的信息和记忆。\n"
+    "你知道的事：\n")
+
+
+def answer(question, now=None, st=None):
+    """(mood, text) for a spoken question. st: the pet's status (default: the latest one the buddy saw)."""
     now = time.time() if now is None else now
-    week, ctx = context(now)
+    week, ctx = context(now, last_status if st is None else st, question)
     _, persona = brain.personality(week)
     history = [e for e in week if e.get("ev") in ("heard", "reply") and now - e["t"] < 1800][-6:]
-    system = (persona + "主人在用语音和你聊天。下面是你知道的事，回答时用得上就用，用不上别硬说：\n" + ctx
-              + "\n用不超过 45 个字回答，可以是两三句短句。" + brain.JSON_TAIL)
+    system = (persona + CHAT_RULES + ctx
+              + "\n用不超过 60 个字回答，可以是两三句短句。" + brain.JSON_TAIL)
     user = ""
     for e in history:
         user += ("主人：" if e["ev"] == "heard" else "你：") + e.get("d", "") + "\n"
     user += "主人：" + question
-    return brain.speak(system, user, max_chars=48, max_tokens=200)
+    return brain.speak(system, user, max_chars=64, max_tokens=300, temperature=0.6)
 
 
 def send_line(line, tries=3):
@@ -364,6 +487,7 @@ def say(mood, text):
 
 
 def run():
+    global last_status
     lock = single_instance()  # noqa: F841  (held until exit)
     log("slime buddy: memory %s" % brain.HOME)
     for line in brain.describe_settings():
@@ -381,6 +505,7 @@ def run():
             if not offline_logged:
                 log("device offline (%s); retrying" % e)
             offline_logged, st = True, None
+        last_status = st
         voice = (st or {}).get("voice") or {}
         if st and voice_seen is None:
             voice_seen = voice.get("seq", 0)  # recordings made before we started are not ours
@@ -437,7 +562,11 @@ def main():
         day = args[1] if len(args) > 1 else brain._day(time.time())
         print(write_diary(day) or "这一天没有可写的事（或者模型没连上）。")
     elif cmd == "ask" and len(args) > 1:
-        got = answer(args[1])
+        try:
+            st = json.loads(brain.device_get("/api/status"))
+        except Exception:
+            st = {}
+        got = answer(args[1], st=st)
         print(got)
         if got:
             brain.journal_append("heard", args[1])
@@ -453,7 +582,7 @@ def main():
         except Exception:
             st = {}
         print(Rules().check(st, time.time()))
-        print(context()[1])
+        print(context(st=st)[1])
     else:
         sys.exit(__doc__)
 

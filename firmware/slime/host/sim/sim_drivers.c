@@ -43,7 +43,11 @@ void audio_play_bgm(bgm_t b)
     if (s_sound && !s_muted) ESP_LOGI(TAG, "sound: background tune %d", (int)b);
 }
 void audio_stop_bgm(void) {}
-void audio_set_muted(bool muted) { s_muted = muted; }
+void audio_set_muted(bool muted)
+{
+    s_muted = muted;
+    if (muted) audio_speak_stop();
+}
 const char *audio_sfx_name(int s) { return s >= 0 && s < SFX_COUNT ? SFX_NAMES[s] : "?"; }
 int audio_sfx_find(const char *name)
 {
@@ -52,7 +56,23 @@ int audio_sfx_find(const char *name)
     return -1;
 }
 void audio_hold_off(uint32_t ms) {}
-void audio_get(audio_state_t *out) { *out = (audio_state_t){.ok = true, .mic = s_mic, .db = -60, .floor = -60}; }
+
+/* spoken answers: printed with their length; "speaking" in the status lasts as long as they would */
+static int64_t s_speak_until;
+bool audio_speak(int16_t *pcm, size_t samples)
+{
+    free(pcm);
+    if (s_muted || !samples) return false;
+    s_speak_until = esp_timer_get_time() + (int64_t)samples * 1000000 / AUDIO_SPEAK_RATE;
+    ESP_LOGI(TAG, "speech: %u ms", (unsigned)(samples * 1000 / AUDIO_SPEAK_RATE));
+    return true;
+}
+void audio_speak_stop(void) { s_speak_until = 0; }
+float audio_speak_level(void) { return esp_timer_get_time() < s_speak_until ? 0.5f : -1; }
+void audio_get(audio_state_t *out)
+{
+    *out = (audio_state_t){.ok = true, .mic = s_mic, .db = -60, .floor = -60, .speaking = esp_timer_get_time() < s_speak_until};
+}
 
 /* push-to-talk: records silence for as long as the button is held, so the bridge's voice path runs */
 static portMUX_TYPE s_rec_m = portMUX_INITIALIZER_UNLOCKED;
@@ -63,6 +83,7 @@ static size_t s_rec_len;
 
 bool audio_rec_start(void)
 {
+    audio_speak_stop(); /* the user talks over it */
     portENTER_CRITICAL(&s_rec_m);
     s_rec.rec = true;
     s_rec_t0 = esp_timer_get_time();

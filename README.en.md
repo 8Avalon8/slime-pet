@@ -126,6 +126,8 @@ To talk: hold the AI key, speak once the screen says it is listening (up to 10 s
 
 Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead~", then just talk; it stops by itself after about a second of silence, and gives up if nothing is said within 5 seconds. The wake word is recognized on the device (Espressif esp-sr WakeNet, the model is packed into the firmware); only the sentence after it goes to the computer. "Wake word" in the settings turns it off. To use another wake word, replace `CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS` in `sdkconfig.defaults` with another ready-made esp-sr model (listed under ESP Speech Recognition in `idf.py menuconfig`) and rebuild; a custom word has to be trained by Espressif.
 
+**Answers read aloud** (optional): the slime can speak its voice-chat answers, its mouth moving with the voice. Enter a "text-to-speech key" under "AI settings" in the web panel: with only a key it uses [Xiaomi MiMo](https://platform.xiaomimimo.com/) (free for now), model `mimo-v2.5-tts`, voice 冰糖; SiliconFlow (`https://api.siliconflow.cn/v1`, CosyVoice2) or any OpenAI-compatible `/audio/speech` API works too. With nothing set it tries the speech-to-text service. MiMo voices: 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean; with model `mimo-v2.5-tts-voicedesign`, write a one-line description of the voice in the voice field to design your own. The computer synthesizes, the pet only plays it (16 kHz, up to 20 s a line). "Voice pitch" in the panel raises or lowers it (like a sped-up tape); "Read answers aloud" in the settings turns it off, and quiet hours keep it silent. The environment variables `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` win when set; `python3 bridge/slime_tts.py "hello"` says one line, `python3 bridge/slime_tts.py config` shows the settings.
+
 ## Repository layout
 
 | Path | Contents |
@@ -136,7 +138,7 @@ Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead
 | `firmware/slime/tools/` | USB flashing, wireless updates, glyph generation |
 | `firmware/slime/bootloader_components/` | Bootloader hook that holds the power on at once (otherwise the board cannot boot on battery) |
 | `firmware/slime/patches/` | A patch to the official BSP, applied automatically at build time |
-| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), Wi-Fi setup |
+| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), speech `slime_tts.py`, Wi-Fi setup |
 | `design/slime_preview.html` | Browser design draft: the source of the look, the states and the jelly physics parameters |
 
 ## Rendering and testing on your computer

@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "bsp/esp_mosaico.h"
@@ -313,6 +314,44 @@ static volatile uint32_t s_rec_speech_ms, s_rec_last_voice; /* a crude voice det
 #define VOICE_OVER_FLOOR_DB 9.0f
 static inline bool before(uint32_t now, uint32_t t) { return (int32_t)(now - t) < 0; }
 
+/* spoken answers: handed over by the web server, played and freed by the audio task */
+#define SPEAK_UP (RATE / AUDIO_SPEAK_RATE)
+static int16_t *s_speak_new; /* waiting for the audio task, under s_lock */
+static size_t s_speak_new_n;
+static volatile bool s_speak_cut;
+static volatile float s_speak_level = -1;
+
+typedef struct {
+    int16_t *pcm;
+    size_t n, i;
+} speech_t;
+
+static void speech_free(speech_t *sp)
+{
+    free(sp->pcm);
+    *sp = (speech_t){0};
+    s_speak_level = -1;
+}
+
+/* Adds the next 10 ms of speech to a stereo block (16 -> 48 kHz, linear); false once all is said. */
+static bool speech_mix(speech_t *sp, int16_t *out)
+{
+    uint64_t acc = 0;
+    int k = 0, f = 0;
+    for (; k < BLOCK_FRAMES / SPEAK_UP && sp->i < sp->n; k++, sp->i++) {
+        const int32_t a = sp->pcm[sp->i], b = sp->i + 1 < sp->n ? sp->pcm[sp->i + 1] : a;
+        acc += (uint32_t)(a * a);
+        for (int m = 0; m < SPEAK_UP; m++, f++) {
+            int32_t v = a + (b - a) * m / SPEAK_UP + out[2 * f];
+            v = v > 32767 ? 32767 : (v < -32768 ? -32768 : v);
+            out[2 * f] = out[2 * f + 1] = (int16_t)v;
+        }
+    }
+    const float rms = k ? sqrtf((float)(acc / k)) / 32768.0f : 0;
+    s_speak_level = rms * 4 > 1 ? 1 : rms * 4; /* speech sits around 0.05-0.2 RMS */
+    return sp->i < sp->n;
+}
+
 typedef struct {
     float floor, prev, slow;
     int state;            /* 0 idle, 1 onset seen */
@@ -410,6 +449,7 @@ static void audio_task(void *arg)
     }
     mic_t m = {.floor = -60, .prev = -90, .slow = -60};
     synth_t y = {0};
+    speech_t sp = {0};
     static const float BGM_GAIN = 0.55f; /* humming, not a concert */
     uint32_t gen_seen = UINT32_MAX, play_end = 0;
     int tail = 0;
@@ -431,7 +471,21 @@ static void audio_task(void *arg)
             if (xQueueReceive(s_q, &s, 0) == pdTRUE && s_sound_on && s >= 0 && s < SFX_COUNT) synth_load(&y, &SOUNDS[s], 1.0f, false);
         }
         if (y.bgm && !s_sound_on) synth_stop(&y);
-        const bool playing = synth_active(&y) || tail > 0;
+        if (s_speak_cut) {
+            s_speak_cut = false;
+            if (sp.pcm) speech_free(&sp);
+        }
+        portENTER_CRITICAL(&s_lock);
+        int16_t *said = s_speak_new;
+        const size_t said_n = s_speak_new_n;
+        s_speak_new = NULL;
+        portEXIT_CRITICAL(&s_lock);
+        if (said) {
+            if (sp.pcm) speech_free(&sp); /* the newer answer wins */
+            sp = (speech_t){.pcm = said, .n = said_n};
+        }
+        if (sp.pcm && y.bgm) synth_stop(&y); /* no humming over its own voice */
+        const bool playing = synth_active(&y) || sp.pcm || tail > 0;
         const bool rec = s_rec_on;
         const bool listen = s_mic_on || rec;
         if (!listen && !playing) {
@@ -467,13 +521,14 @@ static void audio_task(void *arg)
             }
         }
         if (playing) {
+            const bool sound = synth_active(&y) || sp.pcm;
             if (synth_active(&y)) {
                 if (synth_render(&y, out) && y.bgm && s_dance) sensors_post(SEV_BEAT, 0, 7);
-                tail = 4; /* a few blocks of silence flush the DMA ring */
             } else {
                 memset(out, 0, BLOCK_BYTES);
-                tail--;
             }
+            if (sp.pcm && !speech_mix(&sp, out)) speech_free(&sp);
+            tail = sound ? 4 : tail - 1; /* a few blocks of silence flush the DMA ring */
             esp_codec_dev_write(spk, out, BLOCK_BYTES);
             play_end = ms_now();
         }
@@ -481,12 +536,14 @@ static void audio_task(void *arg)
         s_st.mic = listen;
         s_st.playing = playing;
         s_st.bgm = y.bgm && synth_active(&y);
+        s_st.speaking = sp.pcm != NULL;
         portEXIT_CRITICAL(&s_lock);
     }
 }
 
 bool audio_rec_start(void)
 {
+    audio_speak_stop(); /* the user talks over it: stop and listen */
     if (!s_rec) s_rec = heap_caps_malloc(REC_CAP * sizeof(int16_t), MALLOC_CAP_SPIRAM);
     if (!s_rec) return false;
     portENTER_CRITICAL(&s_lock);
@@ -578,8 +635,39 @@ void audio_stop_bgm(void) { s_bgm_req = BGM_COUNT; }
 void audio_set_muted(bool muted)
 {
     s_muted = muted;
-    if (muted) s_bgm_req = BGM_COUNT;
+    if (muted) {
+        s_bgm_req = BGM_COUNT;
+        audio_speak_stop();
+    }
 }
+
+bool audio_speak(int16_t *pcm, size_t samples)
+{
+    portENTER_CRITICAL(&s_lock);
+    const bool ok = s_st.ok && !s_muted && samples > 0;
+    int16_t *old = s_speak_new;
+    if (ok) {
+        s_speak_new = pcm;
+        s_speak_new_n = samples;
+    } else {
+        old = pcm;
+    }
+    portEXIT_CRITICAL(&s_lock);
+    free(old); /* a newer one replaced it before it ever played, or it cannot play */
+    return ok;
+}
+
+void audio_speak_stop(void)
+{
+    portENTER_CRITICAL(&s_lock);
+    int16_t *old = s_speak_new;
+    s_speak_new = NULL;
+    portEXIT_CRITICAL(&s_lock);
+    free(old);
+    s_speak_cut = true;
+}
+
+float audio_speak_level(void) { return s_speak_level; }
 
 static const char *const SFX_NAMES[SFX_COUNT] = {"levelup", "done", "hurt", "ask", "poke", "greet", "dizzy", "startle",
                                                  "sleep", "wake", "hello", "blip", "boot", "sulk", "shy"};

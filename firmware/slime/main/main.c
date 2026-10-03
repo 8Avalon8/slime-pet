@@ -845,7 +845,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
     snprintf(js + n, sizeof js - n,
              "]},\"imu\":{\"ok\":%s,\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,\"tilt\":%.2f,\"face\":%s},"
              "\"mod\":{\"ok\":%s,\"motion\":%s,\"light\":%u},"
-             "\"mic\":{\"ok\":%s,\"db\":%.1f,\"floor\":%.1f,\"claps\":%d},"
+             "\"mic\":{\"ok\":%s,\"db\":%.1f,\"floor\":%.1f,\"claps\":%d,\"speaking\":%s},"
              "\"net\":{\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fails\":%d,\"reason\":%d},"
              "\"voice\":{\"on\":%s,\"seq\":%u,\"ready\":%s,\"rec\":%s},"
              "\"heap\":{\"int\":%u,\"psram\":%u},\"boots\":%s,\"crash\":%s,\"fw\":%s,\"clock\":\"%s\",\"night\":%s,\"focus\":%d,\"rest\":%d,"
@@ -855,7 +855,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"slot\":{\"presence\":%d,\"desc\":%d,\"owner\":%d,\"type\":%d,\"err\":\"%s\",\"bus_resets\":%d}}}",
              ss.imu_ok ? "true" : "false", ss.ax, ss.ay, ss.az, ss.tilt, ss.face_down ? "true" : "false",
              ss.mod_ok ? "true" : "false", ss.motion ? "true" : "false", ss.light, au.ok && au.mic ? "true" : "false", au.db,
-             au.floor, au.claps, net_state_name(ns.state), e2, ns.ip,
+             au.floor, au.claps, au.speaking ? "true" : "false", net_state_name(ns.state), e2, ns.ip,
              ns.rssi, ns.fails, ns.last_reason, b->cfg.voice ? "true" : "false", (unsigned)vr.seq,
              vr.ready ? "true" : "false", vr.rec ? "true" : "false", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
              (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024), boots, crash, fw, clock, b->night ? "true" : "false",
@@ -1624,6 +1624,8 @@ void app_main(void)
         ti = now_s();
         sl_anim_step(&a, now, dt, &p);
         s_t_anim += now_s() - ti;
+        const float said = audio_speak_level(); /* reading an answer aloud: the mouth follows the voice */
+        if (said >= 0) p.mouth = said > 0.25f ? SL_MOUTH_O : (said > 0.08f ? SL_MOUTH_SMALL : SL_MOUTH_FLAT);
 
         /* menu just closed, new background, or the pet dimmed (sleep) and the scenery must dim with it */
         if (menu_shown || (s_bg_scene >= 0 && p.dim != bg_dim)) repaint = true;

@@ -40,6 +40,7 @@ typedef struct {
     int claps;   /* since boot */
     bool playing;
     bool bgm; /* a background tune is playing */
+    bool speaking; /* a spoken answer is playing */
 } audio_state_t;
 
 void audio_start(void);
@@ -77,3 +78,15 @@ typedef struct {
 void audio_rec_get(audio_rec_state_t *out);
 /* The ready recording with this seq, marked as fetched; NULL if there is none. */
 const int16_t *audio_rec_take(uint32_t seq, size_t *samples);
+
+/* Spoken answers: the bridge synthesizes the speech (slime_tts.py) and POSTs it to /api/speak as
+ * 16 kHz mono 16-bit PCM. Played upsampled to 48 kHz, mixed with the effects; the background tune
+ * stops. A new one replaces the one playing; holding the AI key to talk cuts it short. */
+#define AUDIO_SPEAK_RATE 16000
+#define AUDIO_SPEAK_MAX_S 20
+/* Takes ownership of pcm (heap_caps_malloc'd, freed by the audio task). False when it cannot
+ * play (no codec, night mode); pcm is freed then too. */
+bool audio_speak(int16_t *pcm, size_t samples);
+void audio_speak_stop(void);
+/* Loudness of the speech now playing, 0..1 (for the mouth); -1 when nothing is being said. */
+float audio_speak_level(void);

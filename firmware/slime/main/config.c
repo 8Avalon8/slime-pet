@@ -10,7 +10,7 @@
 
 static const char *TAG = "cfg";
 
-#define CFG_VERSION 10 /* v1 = everything up to show_fps; later fields are appended */
+#define CFG_VERSION 11 /* v1 = everything up to show_fps; later fields are appended */
 
 typedef struct {
     uint8_t version;
@@ -43,6 +43,8 @@ static const slime_cfg_t DEFAULTS = {
     .lang = 0,
     .wake = true,
     .scene = CFG_SCENE_AUTO,
+    .speak = true,
+    .speak_pitch = 110,
 };
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -64,6 +66,7 @@ static void sanitize(slime_cfg_t *c)
     c->focus_min = clamp8(c->focus_min, 5, 90);
     c->lang = clamp8(c->lang, 0, 1);
     c->scene = clamp8(c->scene, 0, CFG_SCENE_MAX);
+    c->speak_pitch = clamp8(c->speak_pitch, 80, 150);
 }
 
 /* ---- AI endpoints for the bridge: plain NVS strings next to the settings blob ---- */
@@ -79,6 +82,10 @@ static const struct {
     [AI_STT_URL] = {"stt_url", "ai_surl", 128, true, false},
     [AI_STT_MODEL] = {"stt_model", "ai_smodel", 64, false, false},
     [AI_STT_KEY] = {"stt_key", "ai_skey", AI_VALUE_MAX, false, true},
+    [AI_TTS_URL] = {"tts_url", "ai_turl", 128, true, false},
+    [AI_TTS_MODEL] = {"tts_model", "ai_tmodel", 64, false, false},
+    [AI_TTS_KEY] = {"tts_key", "ai_tkey", AI_VALUE_MAX, false, true},
+    [AI_TTS_VOICE] = {"tts_voice", "ai_tvoice", AI_VALUE_MAX, false, false},
 };
 static char s_ai[AI_FIELD_COUNT][AI_VALUE_MAX + 1];
 

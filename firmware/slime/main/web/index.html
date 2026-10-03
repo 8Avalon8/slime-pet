@@ -129,6 +129,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
         <div class="row"><label>专注时长</label><input type="range" min="5" max="90" step="5" data-k="focus_min" data-unit="分"><output></output></div>
         <div class="row"><label>勿扰开始</label><input type="range" min="0" max="23" data-k="night_start" data-unit="点"><output></output></div>
         <div class="row"><label>勿扰结束</label><input type="range" min="0" max="23" data-k="night_end" data-unit="点"><output></output></div>
+        <div class="row"><label>朗读音调</label><input type="range" min="80" max="150" step="5" data-k="speak_pitch" data-unit="%"><output></output></div>
         <div class="toggles">
           <label><input type="checkbox" data-k="sound">音效</label>
           <label><input type="checkbox" data-k="bgm">空闲时哼歌</label>
@@ -144,6 +145,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
           <label><input type="checkbox" data-k="ai_comment">AI 点评 Claude 的工作</label>
           <label><input type="checkbox" data-k="voice">长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）</label>
           <label><input type="checkbox" data-k="wake">喊“小龙小龙”唤醒，不用按键直接说话</label>
+          <label><input type="checkbox" data-k="speak">把语音聊天的回答念出来（需要语音合成接口）</label>
         </div>
       </div>
     </div>
@@ -179,9 +181,14 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
       <input type="text" name="stt_url" placeholder="语音转文字地址（留空：同模型接口）" maxlength="128">
       <input type="text" name="stt_model" placeholder="语音转文字模型（留空：whisper-1）" maxlength="64">
       <input type="password" name="stt_key" placeholder="语音转文字 Key（留空：同上面的 Key）" maxlength="200" autocomplete="new-password">
+      <input type="text" name="tts_url" placeholder="语音合成地址（留空：同语音转文字）" maxlength="128">
+      <input type="text" name="tts_model" placeholder="语音合成模型（留空：按地址自动选）" maxlength="64">
+      <input type="password" name="tts_key" placeholder="语音合成 Key（留空：同语音转文字的 Key）" maxlength="200" autocomplete="new-password">
+      <input type="text" name="tts_voice" placeholder="音色（如 冰糖、bella；音色设计模型填一句描述）" maxlength="200">
       <button type="submit">保存</button>
     </form>
     <div class="note" id="aikeys"></div>
+    <div class="note">语音合成：小米 MiMo 填 https://api.xiaomimimo.com/v1，模型 mimo-v2.5-tts（音色 冰糖、茉莉、苏打、白桦），或 mimo-v2.5-tts-voicedesign（音色一栏写一句声音描述）；硅基流动填 https://api.siliconflow.cn/v1，默认 CosyVoice2，音色 bella、anna、claire、diana 等；其他 OpenAI 兼容的 /audio/speech 接口也行。</div>
     <div class="note">AI 点评、主动陪伴和语音对话用的模型接口（OpenAI 兼容）。这些只是存在史莱姆里，电脑上的 slime_hook.py 和 slime_buddy.py 会来读；电脑上设置了 SLIME_LLM_URL 等环境变量时以环境变量为准。API Key 保存后不会再显示，在局域网里是明文传输的，和 Wi-Fi 密码一样只在信得过的网络里填。改了接口地址而没有重新填 Key，原来的 Key 会被清掉。</div>
   </section>
 
@@ -227,6 +234,14 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '语音转文字地址（留空：同模型接口）':'Speech-to-text address (blank: same as the model API)',
   '语音转文字模型（留空：whisper-1）':'Speech-to-text model (blank: whisper-1)',
   '语音转文字 Key（留空：同上面的 Key）':'Speech-to-text key (blank: same as the key above)',
+  '语音合成地址（留空：同语音转文字）':'Text-to-speech address (blank: same as speech-to-text)',
+  '语音合成模型（留空：按地址自动选）':'Text-to-speech model (blank: picked from the address)',
+  '语音合成 Key（留空：同语音转文字的 Key）':'Text-to-speech key (blank: same as the speech-to-text key)',
+  '音色（如 冰糖、bella；音色设计模型填一句描述）':'Voice (e.g. bella, Mia; for a voice-design model, a one-line description)',
+  '语音合成：小米 MiMo 填 https://api.xiaomimimo.com/v1，模型 mimo-v2.5-tts（音色 冰糖、茉莉、苏打、白桦），或 mimo-v2.5-tts-voicedesign（音色一栏写一句声音描述）；硅基流动填 https://api.siliconflow.cn/v1，默认 CosyVoice2，音色 bella、anna、claire、diana 等；其他 OpenAI 兼容的 /audio/speech 接口也行。':
+    'Text to speech: Xiaomi MiMo is https://api.xiaomimimo.com/v1 with model mimo-v2.5-tts (voices Mia, Chloe, Milo, Dean, 冰糖, 茉莉) or mimo-v2.5-tts-voicedesign (describe the voice in the voice field); SiliconFlow is https://api.siliconflow.cn/v1, CosyVoice2 by default, voices bella, anna, claire, diana and more; any other OpenAI-compatible /audio/speech API works too.',
+  '朗读音调':'Voice pitch',
+  '把语音聊天的回答念出来（需要语音合成接口）':'Read voice-chat answers aloud (needs a text-to-speech API)',
   'AI 点评、主动陪伴和语音对话用的模型接口（OpenAI 兼容）。这些只是存在史莱姆里，电脑上的 slime_hook.py 和 slime_buddy.py 会来读；电脑上设置了 SLIME_LLM_URL 等环境变量时以环境变量为准。API Key 保存后不会再显示，在局域网里是明文传输的，和 Wi-Fi 密码一样只在信得过的网络里填。改了接口地址而没有重新填 Key，原来的 Key 会被清掉。':'The OpenAI-compatible model API used for AI comments, the buddy and voice chat. The slime only stores these; slime_hook.py and slime_buddy.py on the computer read them, and environment variables such as SLIME_LLM_URL on the computer take precedence. A saved API key is never shown again; it travels unencrypted on your network, so enter it only on a network you trust, like the Wi-Fi password. Changing an address without entering its key again clears the old key.',
   '网络名称（仅 2.4 GHz）':'Network name (2.4 GHz only)','密码':'Password','连接':'Connect',
   '切换网络后本页会断开，到新网络里打开 http://slime.local 。面板没有登录保护，只在局域网内使用。':
@@ -320,9 +335,10 @@ function buildButtons(){
   $('camBtn').textContent=camT?T('关闭画面','Hide picture'):T('看摄像头画面','Show camera picture');
 }
 $('quick').addEventListener('click',e=>{const c=e.target.dataset.c;if(c)fetch('/api/cmd',{method:'POST',body:c}).then(()=>toast(e.target.textContent))});
-const AI_KEYS=['llm_key','stt_key'];
+const AI_KEYS=['llm_key','stt_key','tts_key'];
+const AI_KEY_NAMES={llm_key:['API Key','API key'],stt_key:['语音转文字 Key','Speech-to-text key'],tts_key:['语音合成 Key','Text-to-speech key']};
 function aiShow(c){const f=$('ai');for(const el of f.elements){if(!el.name)continue;if(AI_KEYS.includes(el.name))el.value='';else el.value=c[el.name]||''}
-  $('aikeys').innerHTML=AI_KEYS.map(k=>(k==='llm_key'?'API Key':T('语音转文字 Key','Speech-to-text key'))+T('：',': ')+(c[k+'_set']?T('已保存','saved')+` <button type="button" data-clear="${k}">${T('清除','Clear')}</button>`:T('未设置','not set'))).join(' · ')}
+  $('aikeys').innerHTML=AI_KEYS.map(k=>T(...AI_KEY_NAMES[k])+T('：',': ')+(c[k+'_set']?T('已保存','saved')+` <button type="button" data-clear="${k}">${T('清除','Clear')}</button>`:T('未设置','not set'))).join(' · ')}
 async function aiLoad(){try{aiShow(await (await fetch('/api/ai',{cache:'no-store'})).json())}catch(e){}}
 async function aiPost(o){const r=await fetch('/api/ai',{method:'POST',body:JSON.stringify(o)});if(!r.ok)throw new Error(await r.text());aiShow(await r.json())}
 $('ai').addEventListener('submit',async e=>{e.preventDefault();const o={};

@@ -67,9 +67,18 @@ typedef enum {
     MOOD_COUNT,
 } led_mood_t;
 
+/* What sits in a module slot, for noticing that something was plugged in or pulled out. */
+#define SLOT_PENDING (-1)  /* not known yet: just booted, or the module's descriptor is still being read */
+#define SLOT_EMPTY 0
+#define SLOT_CAMERA 0x07   /* the board types of mosaico_module_mgr.h */
+#define SLOT_INTERACT 0x16
+#define SLOT_OTHER 0xff    /* a module that does not say what it is */
+
 /* Starts whatever is available; never fatal. */
 void sensors_start(void);
 void sensors_get(sensors_state_t *out);
+/* slot 0 = left, 1 = right: SLOT_PENDING, SLOT_EMPTY, or the board type of the module in it. Cheap. */
+int sensors_slot(int slot);
 /* Non-blocking queue pop. */
 bool sensors_next_event(sensor_ev_t *ev);
 /* For other producers (audio). */

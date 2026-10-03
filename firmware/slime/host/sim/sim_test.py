@@ -183,6 +183,18 @@ def run():
     sim("camera_stuck 0")
     expect("idle again", state_is("idle"), timeout=30)
 
+    # modules plugged in and pulled out: the slime says what it gained or lost
+    sim("module L camera")
+    expect("camera plugged in -> the slime is glad", lambda s: "眼睛装上" in s["msg"], timeout=6)
+    shot("09c_camera_in")
+    sim("module R none")
+    expect("interaction module pulled out -> the slime misses it", lambda s: "拔走" in s["msg"] and not s["mod"]["ok"], timeout=15)
+    sim("module L none")
+    expect("camera pulled out", lambda s: "眼前一黑" in s["msg"], timeout=15)
+    sim("module R interact")
+    expect("interaction module back", lambda s: "接上" in s["msg"] and s["mod"]["ok"], timeout=15)
+    expect("idle again", state_is("idle"), timeout=30)
+
     # the bridge's AI comment line
     http("/api/cmd", "say happy 测试通过，真棒！")
     expect("say -> comment on the dialog", lambda s: "测试通过" in s["msg"])

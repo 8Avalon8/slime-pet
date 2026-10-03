@@ -29,7 +29,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Camera** (optional module) | Its eyes follow you; tilt your head and it tilts too; nod and it's happy, shake your head and it sulks; stare and it gets shy; cover the lens for peekaboo; reminds you to get up after sitting too long; a corner thumbnail shows what it sees. All computed on the device; no picture leaves it |
 | **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
-| **Everyday** | Chinese / English UI, clock and time-of-day greetings, quiet hours, a focus timer, sitting reminders and a help page |
+| **Everyday** | Chinese / English UI, clock and time-of-day greetings, a background that follows the time of day (dawn / day / dusk / night), quiet hours, a focus timer, sitting reminders and a help page |
 | **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, the camera picture |
 | **Wireless updates** | Two-slot OTA; a new image must run for 30 s before it confirms itself, and a crash before that rolls back to the old one |
 

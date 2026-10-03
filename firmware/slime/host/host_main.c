@@ -7,6 +7,7 @@
  *   host_sim helpers <n> <t> <state> <out.bmp>  n subagent helpers, t s after they were sent out
  *   host_sim bench                        time 600 animated frames with springs
  *   host_sim menu <page> <out.bmp> [flash_row]   settings screen
+ *   host_sim scene <dawn|day|dusk|night> <state> <t> <out.bmp>  full frame over a background
  *
  * SLIME_LANG=en renders the English UI.
  */
@@ -17,6 +18,7 @@
 #include <time.h>
 
 #include "slime_anim.h"
+#include "slime_bg.h"
 #include "slime_render.h"
 #include "slime_text.h"
 #include "slime_menu.h"
@@ -162,6 +164,33 @@ int main(int argc, char **argv)
         sl_render_dialog(&cv, msg, -1, true);
         write_bmp(argv[5], fb, S, S, S);
         printf("%d helpers drawn\n", p.nmini);
+        return 0;
+    }
+    if (argc >= 6 && !strcmp(argv[1], "scene")) {
+        int sc = 0;
+        while (sc < SL_SCENE_COUNT && strcmp(argv[2], sl_scene_name((sl_scene_t)sc))) sc++;
+        if (sc == SL_SCENE_COUNT) {
+            fprintf(stderr, "unknown scene %s\n", argv[2]);
+            return 1;
+        }
+        sg_canvas_t cv;
+        sg_canvas_init(&cv, fb, S, S, S);
+        sl_bg_draw(&cv, (sl_scene_t)sc);
+        const sl_state_t st = parse_state(argv[3]);
+        const float t = (float)atof(argv[4]);
+        sl_anim_t a;
+        sl_anim_init(&a, 0);
+        sl_pose_t p;
+        sl_anim_pose_raw(&a, st, t, t, 0.016f, &p);
+        p.rip = 0;
+        sl_render_slime(&cv, &p);
+        if (p.dim < 1) sg_dim_rect(&cv, 0, 0, S, S, p.dim);
+        a.state = st;
+        char msg[128];
+        sl_anim_message(&a, msg, sizeof msg);
+        sl_render_hud(&cv, a.lv, a.hp);
+        sl_render_dialog(&cv, msg, -1, true);
+        write_bmp(argv[5], fb, S, S, S);
         return 0;
     }
     if (argc >= 4 && !strcmp(argv[1], "menu")) { /* settings screen preview: menu <page> out.bmp */

@@ -51,6 +51,7 @@
 #include "settings_ui.h"
 #include "vision.h"
 #include "slime_anim.h"
+#include "slime_bg.h"
 #include "slime_render.h"
 #include "slime_text.h"
 #include "usb_link.h"
@@ -1177,11 +1178,64 @@ static int common_prefix(const char *x, const char *y)
     return n;
 }
 
+/* Scenery behind the pet (slime_bg.h): drawn once per change into PSRAM and copied back wherever
+ * the screen used to be cleared to black. NULL until a scene is first wanted: plain black. */
+static uint16_t *s_bg;
+static int s_bg_scene = -1; /* sl_scene_t, -1 = black */
+
+/* Restore the background in r (only this canvas's rows), dimmed like the pet when k < 1. */
+static void bg_fill(sg_canvas_t *cv, sl_rect_t r, float k)
+{
+    if (s_bg_scene < 0 || !s_bg) {
+        sg_fill_rect(cv, r.x0, r.y0, r.x1, r.y1, 0);
+        return;
+    }
+    const int x0 = r.x0 > cv->clip_x0 ? r.x0 : cv->clip_x0, x1 = r.x1 < cv->clip_x1 ? r.x1 : cv->clip_x1;
+    const int y0 = r.y0 > cv->clip_y0 ? r.y0 : cv->clip_y0, y1 = r.y1 < cv->clip_y1 ? r.y1 : cv->clip_y1;
+    if (x1 <= x0) return;
+    for (int y = y0; y < y1; y++) {
+        if (sg_row_mine(cv, y)) memcpy(&cv->px[y * cv->stride + x0], &s_bg[y * SCR + x0], (size_t)(x1 - x0) * 2);
+    }
+    if (k < 1) sg_dim_rect(cv, x0, y0, x1, y1, k);
+}
+
+/* The scene the settings and the clock ask for: -1 = black; without a synced clock, day. */
+static int bg_want(const slime_cfg_t *c)
+{
+    if (c->scene == CFG_SCENE_OFF) return -1;
+    if (c->scene > CFG_SCENE_OFF) return c->scene - CFG_SCENE_OFF - 1;
+    struct tm tm;
+    return net_local_time(&tm) ? (int)sl_scene_at(tm.tm_hour) : SL_SCENE_DAY;
+}
+
+/* Main core only, while the render worker is idle. True when the screen needs a full repaint. */
+static bool bg_update(const slime_cfg_t *c)
+{
+    const int want = bg_want(c);
+    if (want == s_bg_scene) return false;
+    s_bg_scene = want;
+    if (want >= 0) {
+        if (!s_bg) s_bg = heap_caps_malloc(SCR * SCR * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        if (!s_bg) {
+            ESP_LOGW(TAG, "no PSRAM for the background, staying black");
+            return false;
+        }
+        const double t0 = now_s();
+        sg_canvas_t bc;
+        sg_canvas_init(&bc, s_bg, SCR, SCR, SCR);
+        sl_bg_draw(&bc, (sl_scene_t)want);
+        ESP_LOGI(TAG, "background: %s (%.0f ms)", sl_scene_name((sl_scene_t)want), (now_s() - t0) * 1000);
+    } else {
+        ESP_LOGI(TAG, "background: off");
+    }
+    return true;
+}
+
 static void render_part(sg_canvas_t *cv, const sl_pose_t *p, sl_rect_t d)
 {
     double t0 = now_s();
     sg_set_clip(cv, d.x0, d.y0, d.x1, d.y1);
-    sg_fill_rect(cv, d.x0, d.y0, d.x1, d.y1, 0);
+    bg_fill(cv, d, 1); /* the dim below covers the background too */
     cv->scratch->prof[SL_PROF_CLEAR] += now_s() - t0;
     sl_render_slime(cv, p);
     t0 = now_s();
@@ -1281,6 +1335,9 @@ void app_main(void)
     uint32_t stat_frames = 0;
     double stat_t = prev;
     float fps_shown = -1, fps_now = 0;
+    float bg_dim = 1;      /* how dim the background on screen is (follows the pet's dim) */
+    double next_bg = 0;    /* when to look at the clock for the scene again */
+    bool repaint = false;  /* whole screen: background, pet, HUD, dialog */
 
     /* the main loop runs ~20 times a second; if it ever stops for 5 s (a spin, or a driver waiting
      * forever) the task watchdog reboots and the core dump says where it was stuck */
@@ -1419,6 +1476,7 @@ void app_main(void)
         if (cfg_gen() != cfg_seen) {
             cfg_seen = cfg_gen();
             cfg_get(&s_b.cfg);
+            next_bg = 0; /* the background setting may have changed */
             if (sl_lang != (sl_lang_t)s_b.cfg.lang) {
                 sl_lang = (sl_lang_t)s_b.cfg.lang;
                 hud_lv = -1; /* the HUD's name changes too */
@@ -1496,20 +1554,30 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(30));
             continue;
         }
-        if (menu_shown) { /* just closed: repaint everything */
-            menu_shown = false;
-            sg_fill_rect(&cv, 0, 0, SCR, SCR, 0);
-            last = (sl_rect_t){0, 0, SCR, SCR};
-            hud_lv = -1;
-            shown_msg[0] = 0;
-            shown_chars = -1;
-            fps_shown = -2;
+        if (now >= next_bg) { /* the clock moved into another time of day, or the setting changed */
+            next_bg = now + 1;
+            if (bg_update(&s_b.cfg)) repaint = true;
         }
 
         sl_pose_t p;
         ti = now_s();
         sl_anim_step(&a, now, dt, &p);
         s_t_anim += now_s() - ti;
+
+        /* menu just closed, new background, or the pet dimmed (sleep) and the scenery must dim with it */
+        if (menu_shown || (s_bg_scene >= 0 && p.dim != bg_dim)) repaint = true;
+        bool push_all = false;
+        if (repaint) {
+            menu_shown = repaint = false;
+            bg_dim = p.dim;
+            bg_fill(&cv, (sl_rect_t){0, 0, SCR, SCR}, bg_dim);
+            last = (sl_rect_t){0, 0, SCR, SCR};
+            hud_lv = -1;
+            shown_msg[0] = 0;
+            shown_chars = -1;
+            fps_shown = -2;
+            push_all = true;
+        }
 
         const double r0 = now_s();
         /* slime region never reaches the dialog window */
@@ -1534,7 +1602,7 @@ void app_main(void)
         const sl_rect_t hud = SL_HUD_RECT;
         const bool hud_hit = rect_hit(dirty, hud);
         if (hud_hit || hud_lv != a.lv || hud_hp != (int)a.hp) {
-            if (!hud_hit) sg_fill_rect(&cv, hud.x0, hud.y0, hud.x1, hud.y1, 0);
+            if (!hud_hit) bg_fill(&cv, hud, bg_dim);
             sl_render_hud(&cv, a.lv, a.hp);
             hud_lv = a.lv;
             hud_hp = (int)a.hp;
@@ -1546,7 +1614,7 @@ void app_main(void)
             fps_shown = fps_now;
             dirty = sl_rect_union(dirty, fr);
         } else if (!s_b.cfg.show_fps && fps_shown >= 0) { /* switched off: erase once */
-            if (!rect_hit(dirty, fr)) sg_fill_rect(&cv, fr.x0, fr.y0, fr.x1, fr.y1, 0);
+            if (!rect_hit(dirty, fr)) bg_fill(&cv, fr, bg_dim);
             fps_shown = -1;
             dirty = sl_rect_union(dirty, fr);
         }
@@ -1575,15 +1643,15 @@ void app_main(void)
             } else if (s_pip_shown) { /* gone: give the corner back to the pet */
                 s_pip_shown = false;
                 vision_set_preview(VISION_PV_OFF);
-                sg_fill_rect(&cv, pr.x0, pr.y0, pr.x1, pr.y1, 0);
+                bg_fill(&cv, pr, bg_dim);
                 pip_push = true;
                 cur = sl_rect_union(cur, pr); /* next frame repaints the pet there */
                 fps_shown = -2;               /* the FPS readout sits right above */
             }
         }
         s_t_render += now_s() - r0;
-        push_rect(dirty);
-        if (pip_push) push_rect(PIP_RECT);
+        push_rect(push_all ? (sl_rect_t){0, 0, SCR, SCR} : dirty);
+        if (pip_push && !push_all) push_rect(PIP_RECT);
         last = cur;
 
         /* dialog: typewriter, blinking cursor when complete; new text keeps the shared prefix */
@@ -1602,7 +1670,7 @@ void app_main(void)
         if (strcmp(msg, shown_msg) || vis_c != shown_chars || cursor != shown_cursor) {
             const double td = now_s();
             const sl_rect_t dr = SL_DIALOG_RECT;
-            sg_fill_rect(&cv, dr.x0, dr.y0, dr.x1, dr.y1, 0);
+            bg_fill(&cv, dr, bg_dim);
             sl_render_dialog(&cv, msg, vis_c, cursor);
             if (s_b.cfg.text_blip && vis_c > shown_chars && shown_chars >= 0 && (vis_c & 1)) sfx(&a, SFX_BLIP);
             push_rect(dr);

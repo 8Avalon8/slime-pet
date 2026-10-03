@@ -1,5 +1,5 @@
 CORE := ../components/slime_core
-SRCS := host_main.c $(CORE)/sg.c $(CORE)/slime_anim.c $(CORE)/slime_render.c $(CORE)/slime_text.c $(CORE)/slime_glyphs.c $(CORE)/slime_glyphs_ext.c $(CORE)/slime_menu.c
+SRCS := host_main.c $(CORE)/sg.c $(CORE)/slime_anim.c $(CORE)/slime_render.c $(CORE)/slime_bg.c $(CORE)/slime_text.c $(CORE)/slime_glyphs.c $(CORE)/slime_glyphs_ext.c $(CORE)/slime_menu.c
 CFLAGS := -O2 -fno-math-errno -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(CORE)/include
 OUT := out
 

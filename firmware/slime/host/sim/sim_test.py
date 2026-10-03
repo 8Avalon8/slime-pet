@@ -9,6 +9,7 @@ Stdlib only.
 import json
 import os
 import socket
+import struct
 import subprocess
 import sys
 import time
@@ -55,6 +56,14 @@ def shot(name):
     os.makedirs(SHOTS, exist_ok=True)
     with open(os.path.join(SHOTS, name + ".bmp"), "wb") as f:
         f.write(http("/sim/screen.bmp"))
+
+
+def pixel(bmp, x, y):
+    """(r, g, b) of a 24-bit BMP at x, y from the top."""
+    off, w, h = struct.unpack_from("<I", bmp, 10)[0], *struct.unpack_from("<ii", bmp, 18)
+    row = (w * 3 + 3) & ~3
+    p = off + (y if h < 0 else abs(h) - 1 - y) * row + x * 3
+    return bmp[p + 2], bmp[p + 1], bmp[p]
 
 
 def expect(what, cond, timeout=4.0):
@@ -185,6 +194,25 @@ def run():
     http("/api/config", json.dumps({"wake": False}))
     w = json.loads(http("/api/config")).get("wake")
     (print("ok    wake word setting round trip") if w is False else (failures.append("wake setting"), print("FAIL  wake setting: %r" % w)))
+
+    # background scenery: each fixed scene paints the sky, "off" is plain black, and asleep it dims with the pet
+    skies = {}
+    for scene, name in ((2, "dawn"), (3, "day"), (4, "dusk"), (5, "night"), (1, "off")):
+        http("/api/config", json.dumps({"scene": scene}))
+        time.sleep(0.6)
+        shot("11_scene_" + name)
+        skies[name] = pixel(http("/sim/screen.bmp"), 240, 24)
+    lit = [skies[n] for n in ("dawn", "day", "dusk", "night")]
+    ok = skies["off"] == (0, 0, 0) and all(c != (0, 0, 0) for c in lit) and len(set(lit)) == 4
+    (print("ok    background scenes %s" % skies) if ok else (failures.append("background scenes"), print("FAIL  background scenes %s" % skies)))
+    http("/api/config", json.dumps({"scene": 5}))
+    http("/api/cmd", "state sleep")
+    time.sleep(0.8)
+    shot("12_scene_night_asleep")
+    dim, bright = pixel(http("/sim/screen.bmp"), 240, 24), skies["night"]
+    ok = sum(dim) < sum(bright)
+    (print("ok    background dims while asleep") if ok else (failures.append("background dim"), print("FAIL  background dim %s vs %s" % (dim, bright))))
+    http("/api/config", json.dumps({"scene": 0}))
 
     # the bridge's AI endpoints: a saved key only comes back with the update token ("simulator" here),
     # and changing the address without a key drops the old key

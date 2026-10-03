@@ -120,6 +120,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
         <div class="row"><label>睡觉时亮度</label><input type="range" min="0" max="100" data-k="sleep_bright"><output></output></div>
         <div class="row"><label>彩灯亮度</label><input type="range" min="0" max="255" data-k="led_bright"><output></output></div>
         <div class="row"><label>自动睡眠</label><input type="range" min="1" max="60" data-k="sleep_min" data-unit="分"><output></output></div>
+        <div class="row"><label>背景</label><select data-k="scene"><option value="0">自动（按时间）</option><option value="1">关闭</option><option value="2">清晨</option><option value="3">白天</option><option value="4">黄昏</option><option value="5">夜晚</option></select></div>
       </div>
       <div>
         <div class="row"><label>音量</label><input type="range" min="0" max="100" data-k="volume"><output></output></div>
@@ -210,7 +211,7 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '系统':'SYSTEM','帧率':'Frame rate','电池':'Battery','内存':'Memory','运行':'Uptime','最近重启':'Recent boots',
   '设置（改动即保存）':'SETTINGS (SAVED AS YOU CHANGE THEM)','屏幕亮度':'Screen brightness','睡觉时亮度':'Asleep brightness','彩灯亮度':'LED brightness',
   '自动睡眠':'Auto sleep','音量':'Volume','拍手灵敏度':'Clap sensitivity','久坐提醒':'Sitting reminder','专注时长':'Focus length',
-  '勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
+  '背景':'Background','自动（按时间）':'Auto (by the clock)','关闭':'Off','清晨':'Dawn','白天':'Day','黄昏':'Dusk','夜晚':'Night','勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
   '空闲呼吸灯':'Breathing LEDs when idle','震动':'Vibration','麦克风':'Microphone','跟着声音晃':'Bob to the sound','倾斜滑动':'Tilt to slide',
   '屏幕显示帧率':'Show FPS on screen','摄像头小窗常开':'Camera thumbnail always on','长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）':'Hold the AI key to talk to the slime (needs slime_buddy.py running on the computer)','AI 点评 Claude 的工作':'AI comments on Claude\'s work','喊“小龙小龙”唤醒，不用按键直接说话':'Say "Xiaolong Xiaolong" to talk without the key',
   '常用':'QUICK','开始专注':'Start focus','结束专注':'Stop focus',

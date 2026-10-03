@@ -39,7 +39,13 @@ typedef struct {
     uint8_t lang; /* sl_lang_t: 0 = Chinese, 1 = English (device and web panel) */
     /* v9 */
     bool wake; /* the wake word starts a conversation without the AI key (needs voice and the microphone) */
+    /* v10 */
+    uint8_t scene; /* background: CFG_SCENE_AUTO follows the clock, CFG_SCENE_OFF is plain black, else one fixed sl_scene_t + 2 */
 } slime_cfg_t;
+
+#define CFG_SCENE_AUTO 0
+#define CFG_SCENE_OFF 1
+#define CFG_SCENE_MAX 5 /* dawn, day, dusk, night = 2..5 */
 
 /* Initializes NVS (shared with the progress store) and loads settings; defaults on any error. */
 esp_err_t cfg_init(void);

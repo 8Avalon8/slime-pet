@@ -18,3 +18,8 @@ endforeach()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(slime_pet)
+
+# esp-sr asks esp-dl to compile only the operators its own models use. The face detector
+# (human_face_detect) makes no such request, so its model would lose Concat and others and fail
+# to load. Dropping the request brings back esp-dl's default: every operator is compiled.
+idf_build_set_property(ESPDL_COMPILE_REQS "")

@@ -175,6 +175,9 @@ def run():
     http("/api/config", json.dumps({"volume": 30}))
     v = json.loads(http("/api/config"))["volume"]
     (print("ok    config round trip") if v == 30 else (failures.append("config round trip"), print("FAIL  config round trip")))
+    http("/api/config", json.dumps({"wake": False}))
+    w = json.loads(http("/api/config")).get("wake")
+    (print("ok    wake word setting round trip") if w is False else (failures.append("wake setting"), print("FAIL  wake setting: %r" % w)))
 
     # the bridge's AI endpoints: a saved key only comes back with the update token ("simulator" here),
     # and changing the address without a key drops the old key

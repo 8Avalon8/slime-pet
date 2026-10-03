@@ -16,6 +16,7 @@
 #include "nvs.h"
 #include "sensors.h"
 #include "sfxr.h"
+#include "wake.h"
 
 static const char *TAG = "audio";
 
@@ -360,6 +361,8 @@ static int16_t *s_rec;
 static volatile bool s_rec_on, s_rec_ready;
 static volatile size_t s_rec_len;
 static volatile uint32_t s_rec_seq;
+static volatile uint32_t s_rec_speech_ms, s_rec_last_voice; /* a crude voice detector for the hands-free mode */
+#define VOICE_OVER_FLOOR_DB 9.0f
 static inline bool before(uint32_t now, uint32_t t) { return (int32_t)(now - t) < 0; }
 
 typedef struct {
@@ -510,15 +513,28 @@ static void audio_task(void *arg)
         if (listen && esp_codec_dev_read(mic, in, BLOCK_BYTES) == ESP_CODEC_DEV_OK) {
             const bool quiet = rec || playing || before(now, play_end + AFTER_PLAY_MS) || before(now, s_hold_until);
             mic_block(&m, in, quiet, now);
-            if (rec) { /* 48 kHz stereo -> 16 kHz mono: average each run of 3 left-channel samples */
-                size_t n = s_rec_len;
-                for (int i = 0; i + REC_DECIM <= BLOCK_FRAMES && n < REC_CAP; i += REC_DECIM) {
-                    int32_t acc = 0;
-                    for (int k = 0; k < REC_DECIM; k++) acc += in[2 * (i + k)];
-                    s_rec[n++] = (int16_t)(acc / REC_DECIM);
+            /* 48 kHz stereo -> 16 kHz mono: average each run of 3 left-channel samples */
+            static int16_t mono[BLOCK_FRAMES / REC_DECIM]; /* static: this task's stack is small */
+            for (int i = 0; i < BLOCK_FRAMES / REC_DECIM; i++) {
+                int32_t acc = 0;
+                for (int k = 0; k < REC_DECIM; k++) acc += in[2 * (i * REC_DECIM + k)];
+                mono[i] = (int16_t)(acc / REC_DECIM);
+            }
+            if (rec) {
+                portENTER_CRITICAL(&s_lock);
+                const float db = s_st.db, floor = s_st.floor;
+                portEXIT_CRITICAL(&s_lock);
+                /* our own speaker (the typing blips of "I'm here") is not the user talking */
+                if (!playing && !before(now, play_end + AFTER_PLAY_MS) && db - floor > VOICE_OVER_FLOOR_DB) {
+                    s_rec_speech_ms += 1000 * BLOCK_FRAMES / RATE;
+                    s_rec_last_voice = now;
                 }
+                size_t n = s_rec_len;
+                for (int i = 0; i < BLOCK_FRAMES / REC_DECIM && n < REC_CAP; i++) s_rec[n++] = mono[i];
                 s_rec_len = n;
                 if (n >= REC_CAP) s_rec_on = false; /* full: the main loop notices and wraps up */
+            } else if (!playing && !before(now, play_end + AFTER_PLAY_MS)) {
+                wake_feed(mono, BLOCK_FRAMES / REC_DECIM); /* not our own speaker */
             }
         }
         if (playing) {
@@ -550,6 +566,8 @@ bool audio_rec_start(void)
     portENTER_CRITICAL(&s_lock);
     s_rec_ready = false; /* the buffer is about to be overwritten */
     s_rec_len = 0;
+    s_rec_speech_ms = 0;
+    s_rec_last_voice = ms_now();
     s_rec_on = true;
     portEXIT_CRITICAL(&s_lock);
     return true;
@@ -569,6 +587,12 @@ uint32_t audio_rec_stop(uint32_t min_ms)
 }
 
 bool audio_rec_active(void) { return s_rec_on; }
+
+void audio_rec_voice(uint32_t *speech_ms, uint32_t *quiet_ms)
+{
+    *speech_ms = s_rec_speech_ms;
+    *quiet_ms = ms_now() - s_rec_last_voice;
+}
 
 void audio_rec_get(audio_rec_state_t *out)
 {

@@ -46,6 +46,7 @@
 #include "inbox.h"
 #include "net.h"
 #include "ota.h"
+#include "wake.h"
 #include "sensors.h"
 #include "settings_ui.h"
 #include "vision.h"
@@ -279,6 +280,8 @@ typedef struct {
     double focus_end, break_end; /* focus timer: 0 = not running */
     /* push-to-talk: recording while the AI key is held, then waiting for the bridge's answer */
     bool listening;
+    bool handsfree;        /* started by the wake word: it ends by itself when you stop talking */
+    double listen_t0;
     double voice_wait_until; /* 0 = not waiting */
     /* demo: a scripted tour of every feature, for recording a video */
     bool demo, demo_pip;
@@ -1054,17 +1057,33 @@ static bool demo_tick(brain_t *b, sl_anim_t *a, bool cam_ok, double now)
 #define VOICE_MIN_MS 600
 #define VOICE_WAIT_S 25 /* speech to text plus a model answer, on the computer */
 
-static void voice_start(brain_t *b, sl_anim_t *a, double now)
+#define WAKE_NO_SPEECH_S 5.0   /* woken up, then nothing was said: give up quietly */
+#define WAKE_SPEECH_MIN_MS 300 /* this much voice makes it an utterance */
+#define WAKE_PAUSE_MS 1200     /* a pause this long ends it */
+
+static void voice_start(brain_t *b, sl_anim_t *a, double now, bool handsfree)
 {
     if (!audio_rec_start()) {
         react(b, a, SL_SULK, now, SL_TR("没有内存录音了……", "No memory left to record..."));
         return;
     }
     b->listening = true;
+    b->handsfree = handsfree;
+    b->listen_t0 = now;
     b->voice_wait_until = 0;
     b->manual_until = now + AUDIO_REC_MAX_S + 5; /* the brain keeps its hands off while we listen */
-    react(b, a, SL_THINK, now, SL_TR("我在听，说完松开 AI 键～", "Listening! Let go when you are done~"));
+    react(b, a, SL_THINK, now,
+          handsfree ? SL_TR("我在！你说～", "I'm here! Go ahead~") : SL_TR("我在听，说完松开 AI 键～", "Listening! Let go when you are done~"));
     buzz(HAPTIC_TICK);
+}
+
+/* Woken by the wake word and nothing followed: drop the recording, back to normal. */
+static void voice_cancel(brain_t *b, sl_anim_t *a, double now)
+{
+    b->listening = false;
+    audio_rec_stop(UINT32_MAX); /* too short by definition: nothing is offered to the bridge */
+    b->manual_until = 0;
+    react(b, a, SL_IDLE, now, SL_TR("没听到你说话，再叫我一次吧", "I heard nothing. Call me again?"));
 }
 
 static void voice_stop(brain_t *b, sl_anim_t *a, double now)
@@ -1074,7 +1093,9 @@ static void voice_stop(brain_t *b, sl_anim_t *a, double now)
     buzz(HAPTIC_TICK);
     if (ms < VOICE_MIN_MS) {
         b->manual_until = 0;
-        react(b, a, SL_POKE_R, now, SL_TR("太短了，按住 AI 键再说一次吧", "Too short, hold the AI key, try again"));
+        react(b, a, SL_POKE_R, now,
+              b->handsfree ? SL_TR("太短了，再叫我一次吧", "Too short. Call me again?")
+                           : SL_TR("太短了，按住 AI 键再说一次吧", "Too short, hold the AI key, try again"));
         return;
     }
     b->voice_wait_until = now + VOICE_WAIT_S;
@@ -1441,6 +1462,7 @@ void app_main(void)
     if (haptic_init() != ESP_OK) ESP_LOGW(TAG, "motor unavailable");
     sensors_start();
     audio_start();
+    wake_start();
     vision_enable(s_b.cfg.camera);
     vision_start();
     inbox_init();
@@ -1507,7 +1529,18 @@ void app_main(void)
          * BOOT hold = settings. Any of them closes the settings when open. */
         const int ev = atomic_exchange(&s_event, EV_NONE);
         const bool ai_up = atomic_exchange(&s_ai_up, false);
-        if (s_b.listening && (ai_up || !audio_rec_active())) voice_stop(&s_b, &a, now); /* released, or 10 s full */
+        if (s_b.listening && s_b.handsfree) { /* no key to let go of: a pause after some speech ends it */
+            uint32_t speech_ms, quiet_ms;
+            audio_rec_voice(&speech_ms, &quiet_ms);
+            if (!audio_rec_active() || (speech_ms >= WAKE_SPEECH_MIN_MS && quiet_ms >= WAKE_PAUSE_MS)) voice_stop(&s_b, &a, now);
+            else if (speech_ms < WAKE_SPEECH_MIN_MS && now - s_b.listen_t0 > WAKE_NO_SPEECH_S) voice_cancel(&s_b, &a, now);
+        } else if (s_b.listening && (ai_up || !audio_rec_active())) {
+            voice_stop(&s_b, &a, now); /* released, or 10 s full */
+        }
+        /* the wake word: the same conversation as holding the AI key, hands free */
+        if (wake_take() && s_b.cfg.wake && s_b.cfg.voice && !s_b.listening && !s_b.voice_wait_until && !s_b.demo && !sui_active()) {
+            voice_start(&s_b, &a, now, true);
+        }
         voice_tick(&s_b, &a, now);
         if (ev != EV_NONE && sui_active()) {
             sui_close();
@@ -1520,7 +1553,7 @@ void app_main(void)
             buzz(HAPTIC_TICK);
             if (c.sound) audio_play(SFX_HELLO);
         } else if (ev == EV_AI_LONG && s_b.cfg.voice && !s_b.demo) {
-            voice_start(&s_b, &a, now);
+            if (!s_b.listening) voice_start(&s_b, &a, now, false);
         } else if (ev == EV_AI_LONG) {
             s_open_help = true;
             buzz(HAPTIC_TICK);
@@ -1631,6 +1664,7 @@ void app_main(void)
             haptic_set_enabled(s_b.cfg.motor);
             sensors_set_led_brightness(s_b.cfg.led_bright);
             audio_configure(s_b.cfg.mic, s_b.cfg.clap_sens, s_b.cfg.dance, s_b.cfg.sound, s_b.cfg.volume);
+            wake_enable(s_b.cfg.wake && s_b.cfg.voice);
             vision_enable(s_b.cfg.camera);
             static bool greeted;
             if (!greeted) { /* the first time the settings are applied: title-screen fanfare */

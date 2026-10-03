@@ -22,7 +22,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". By default the transcript only goes to that local model, never to the cloud; any OpenAI-compatible cloud API also works |
 | **Memory and personality** | The computer side logs every event in the slime's journal; the last 7 days of your habits shape its personality (night owl, confident, worrier, workaholic, ...) and the tone of its comments; it writes a diary every day |
 | **Proactive companion** | With `slime_buddy.py` running, it speaks up when Claude has waited for your approval too long, commands keep failing, you work deep into the night or for hours on end, you finish a lot today, or you come back after a while |
-| **Voice chat** | Hold the AI key and speak; the computer turns the recording into text and the slime answers with what it remembers, e.g. "What was Claude just doing?" |
+| **Voice chat** | Say the wake word ("Xiaolong Xiaolong") or hold the AI key, then speak; the computer turns the recording into text and the slime answers with what it remembers, e.g. "What was Claude just doing?" The wake word is recognized on the device: nothing leaves it until you have called it |
 | **Touch and buttons** | Tap to poke it, hold 1 s for the settings menu; AI key: click to mute, hold to talk (or for the help page with voice off); BOOT key: click to start/stop focus, hold for settings; the Interaction module's left/right keys set the volume |
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
 | **Microphone** | Clap twice to say hi; it bobs to the beat of music (keyboard typing is ignored) |
@@ -119,6 +119,8 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 ```
 
 To talk: hold the AI key, speak once the screen says it is listening (up to 10 s), release and wait for the answer. It records only while you hold the key, and the device serves each recording once. Your voice and the conversation go to the speech and model endpoints you configured. Turn off "长按 AI 键说话" in the device settings to get the help page back on a long press.
+
+Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead~", then just talk; it stops by itself after about a second of silence, and gives up if nothing is said within 5 seconds. The wake word is recognized on the device (Espressif esp-sr WakeNet, the model is packed into the firmware); only the sentence after it goes to the computer. "Wake word" in the settings turns it off. To use another wake word, replace `CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS` in `sdkconfig.defaults` with another ready-made esp-sr model (listed under ESP Speech Recognition in `idf.py menuconfig`) and rebuild; a custom word has to be trained by Espressif.
 
 ## Repository layout
 

@@ -29,6 +29,7 @@ static const char *const SFX_NAMES[SFX_COUNT] = {"levelup", "done", "hurt", "ask
 static bool s_sound = true, s_muted, s_mic = true;
 
 void audio_start(void) {}
+void audio_set_speak_volume(uint8_t volume) {}
 void audio_configure(bool mic, uint8_t clap_sens, bool dance, bool sound, uint8_t volume)
 {
     s_mic = mic;

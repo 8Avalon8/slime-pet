@@ -296,7 +296,7 @@ static QueueHandle_t s_q;
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static audio_state_t s_st;
 static volatile bool s_mic_on = true, s_dance = true, s_sound_on = true;
-static volatile uint8_t s_sens = 5, s_volume = 45;
+static volatile uint8_t s_sens = 5, s_volume = 45, s_speak_vol = 100;
 static volatile uint32_t s_cfg_gen, s_hold_until;
 static volatile int s_bgm_req = -1; /* BGM_COUNT = stop */
 static volatile bool s_muted;       /* night mode: nothing plays, whatever the settings say */
@@ -452,13 +452,13 @@ static void audio_task(void *arg)
     speech_t sp = {0};
     static const float BGM_GAIN = 0.55f; /* humming, not a concert */
     uint32_t gen_seen = UINT32_MAX, play_end = 0;
-    int tail = 0;
+    int tail = 0, vol_now = -1;
     esp_task_wdt_add(NULL); /* blocks every 10-20 ms; a stall here is what leaves the speaker buzzing */
     for (;;) {
         esp_task_wdt_reset();
         if (gen_seen != s_cfg_gen) {
             gen_seen = s_cfg_gen;
-            esp_codec_dev_set_out_vol(spk, s_volume);
+            vol_now = -1;
         }
         const int req = s_bgm_req;
         if (req >= 0) {
@@ -486,6 +486,11 @@ static void audio_task(void *arg)
             sp = (speech_t){.pcm = said, .n = said_n};
         }
         if (sp.pcm && y.bgm) synth_stop(&y); /* no humming over its own voice */
+        const int vol = sp.pcm ? s_speak_vol : s_volume; /* the voice has a volume of its own */
+        if (vol != vol_now) {
+            vol_now = vol;
+            esp_codec_dev_set_out_vol(spk, vol);
+        }
         const bool playing = synth_active(&y) || sp.pcm || tail > 0;
         const bool rec = s_rec_on;
         const bool listen = s_mic_on || rec;
@@ -608,6 +613,12 @@ void audio_start(void)
     }
 }
 
+void audio_set_speak_volume(uint8_t volume)
+{
+    s_speak_vol = volume > 100 ? 100 : volume;
+    s_cfg_gen = s_cfg_gen + 1;
+}
+
 void audio_configure(bool mic, uint8_t clap_sens, bool dance, bool sound, uint8_t volume)
 {
     s_mic_on = mic;
@@ -644,8 +655,8 @@ void audio_set_muted(bool muted)
 
 /* Synthesized speech arrives quiet (around 0.05-0.1 RMS) next to the tunes and effects: bring every
  * clip to the same loudness. Peaks that would clip are bent over instead of cut off. */
-#define SPEAK_RMS 0.20f     /* target, of full scale */
-#define SPEAK_GAIN_MAX 6.0f /* a nearly silent clip is not blown up into noise */
+#define SPEAK_RMS 0.30f     /* target, of full scale */
+#define SPEAK_GAIN_MAX 8.0f /* a nearly silent clip is not blown up into noise */
 #define SPEAK_KNEE 22000    /* above this a sample only rises a quarter as fast */
 static void speak_loudness(int16_t *pcm, size_t n)
 {

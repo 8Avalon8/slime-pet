@@ -10,7 +10,7 @@
 
 static const char *TAG = "cfg";
 
-#define CFG_VERSION 13 /* v1 = everything up to show_fps; later fields are appended */
+#define CFG_VERSION 14 /* v1 = everything up to show_fps; later fields are appended */
 
 typedef struct {
     uint8_t version;
@@ -48,6 +48,7 @@ static const slime_cfg_t DEFAULTS = {
     .face = true,
     .gesture = false,
     .quiet = true,
+    .speak_vol = 100,
 };
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -70,6 +71,7 @@ static void sanitize(slime_cfg_t *c)
     c->lang = clamp8(c->lang, 0, 1);
     c->scene = clamp8(c->scene, 0, CFG_SCENE_MAX);
     c->speak_pitch = clamp8(c->speak_pitch, 80, 150);
+    c->speak_vol = clamp8(c->speak_vol, 0, 100);
 }
 
 /* ---- AI endpoints for the bridge: plain NVS strings next to the settings blob ---- */

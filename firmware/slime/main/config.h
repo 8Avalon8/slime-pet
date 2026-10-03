@@ -49,6 +49,8 @@ typedef struct {
     bool gesture; /* hand gestures as commands: thumb up/down, open palm, OK, "call me" */
     /* v13 */
     bool quiet; /* quiet hours (night_start..night_end: no sound, no LEDs, dimmer screen, early sleep) are in use at all */
+    /* v14 */
+    uint8_t speak_vol; /* 0-100: the speaker volume while an answer is read aloud (effects and tunes use `volume`) */
 } slime_cfg_t;
 
 #define CFG_SCENE_AUTO 0

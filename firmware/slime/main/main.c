@@ -1661,6 +1661,7 @@ void app_main(void)
             haptic_set_enabled(s_b.cfg.motor);
             sensors_set_led_brightness(s_b.cfg.led_bright);
             audio_configure(s_b.cfg.mic, s_b.cfg.clap_sens, s_b.cfg.dance, s_b.cfg.sound, s_b.cfg.volume);
+            audio_set_speak_volume(s_b.cfg.speak_vol);
             wake_enable(s_b.cfg.wake && s_b.cfg.voice);
             vision_set_features(s_b.cfg.face, s_b.cfg.gesture);
             vision_enable(s_b.cfg.camera);

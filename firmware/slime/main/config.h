@@ -47,6 +47,8 @@ typedef struct {
     /* v12: what the camera looks for. Each has its own model, loaded only while switched on; both do not fit, gestures win */
     bool face;    /* faces: eye contact, presence, nod and shake, the sitting reminder */
     bool gesture; /* hand gestures as commands: thumb up/down, open palm, OK, "call me" */
+    /* v13 */
+    bool quiet; /* quiet hours (night_start..night_end: no sound, no LEDs, dimmer screen, early sleep) are in use at all */
 } slime_cfg_t;
 
 #define CFG_SCENE_AUTO 0

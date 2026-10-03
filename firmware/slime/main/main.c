@@ -297,6 +297,9 @@ typedef struct {
     char notice[96];    /* short-lived message for calm states (Wi-Fi joined, ...) */
     double notice_until;
     double cam_stuck_since, cam_warn_next; /* camera plugged in and switched on, but not coming up */
+    /* module slots (left, right): what the slime last knew to be in each, and a change it has not mentioned yet */
+    int slot_known[2], slot_seen[2];
+    double slot_seen_t[2], slot_poll;
     /* camera */
     double last_face, face_since; /* face_since: start of the current sitting session, 0 = none */
     double close_since, close_cool, last_sit_nag, last_wait_nudge;
@@ -1063,6 +1066,57 @@ static void camera_watch(brain_t *b, sl_anim_t *a, const vision_state_t *vs, dou
     ESP_LOGW(TAG, "camera stuck: %d attempts, last error %s", vs->tries, esp_err_to_name(vs->err));
 }
 
+#ifndef SLOT_SETTLE_S      /* the simulator's tests shorten it */
+#define SLOT_SETTLE_S 20   /* after boot the modules are found one by one: that is not news */
+#endif
+#define SLOT_STABLE_S 1.0  /* a module being pushed in can come and go for a moment */
+
+/* A module was plugged in or pulled out: the slime says what it gained or lost. */
+static void slot_watch(brain_t *b, sl_anim_t *a, double now)
+{
+    if (now < b->slot_poll) return;
+    b->slot_poll = now + 0.5;
+    for (int i = 0; i < 2; i++) {
+        const int cur = sensors_slot(i);
+        if (cur == SLOT_PENDING) continue;
+        if (cur != b->slot_seen[i]) {
+            b->slot_seen[i] = cur;
+            b->slot_seen_t[i] = now;
+        }
+        const int was = b->slot_known[i];
+        if (cur == was) continue;
+        if (now < SLOT_SETTLE_S) {
+            b->slot_known[i] = cur; /* taken note of, silently */
+            continue;
+        }
+        if (now - b->slot_seen_t[i] < SLOT_STABLE_S) continue;
+        /* It interrupts work and thinking, like a poke does: whoever plugged it in is watching for an answer.
+         * Asleep or in a conversation: it says so afterwards (and says nothing if things are back as they were by then). */
+        if (a->state == SL_SLEEP || a->state == SL_LEVELUP || b->listening || b->voice_wait_until) continue;
+        b->slot_known[i] = cur;
+        b->last_activity = now; /* someone is right here */
+        const int what = cur != SLOT_EMPTY ? cur : was;
+        const char *msg;
+        if (cur != SLOT_EMPTY) {
+            msg = what == SLOT_CAMERA && i ? SL_TR("眼睛装上啦！\n不过要插在左边才看得见哦", "I got my eye!\nBut it only works on the left")
+                  : what == SLOT_CAMERA ? b->cfg.camera ? SL_TR("哇，眼睛装上啦！\n马上就能看见你了～", "Ooh, I got my eye!\nI'll see you in a moment~")
+                                                      : SL_TR("眼睛装上啦！\n不过摄像头在设置里还关着哦", "I got my eye!\nBut the camera is off in Settings")
+                  : what == SLOT_INTERACT ? SL_TR("按键和彩灯接上啦！\n快来戳戳我～", "Buttons and lights are on!\nCome and poke me~")
+                                          : SL_TR("咦，插了个新模块？\n我还不认识它呢", "Oh, a new module?\nI don't know this one yet");
+        } else {
+            msg = what == SLOT_CAMERA ? SL_TR("咦？眼前一黑……\n我的眼睛被拿走了", "Huh? It went dark...\nMy eye is gone")
+                  : what == SLOT_INTERACT ? SL_TR("按键和彩灯被拔走了……\n有点舍不得", "My buttons and lights are gone...\nI miss them already")
+                                          : SL_TR("模块被拔走啦，拜拜～", "The module is gone. Bye-bye~");
+        }
+        react(b, a, cur != SLOT_EMPTY ? SL_GREET : SL_SULK, now, "%s", msg);
+        snprintf(b->notice, sizeof b->notice, "%s", msg); /* stays up after the reaction ends */
+        b->notice_until = now + 8;
+        sfx(a, cur != SLOT_EMPTY ? SFX_HELLO : SFX_SULK);
+        ESP_LOGI(TAG, "%s slot: module %#x -> %#x", i ? "right" : "left", was, cur);
+        return; /* one line at a time */
+    }
+}
+
 static void handle_vision(brain_t *b, sl_anim_t *a, cc_status_t cs, double now)
 {
     vision_state_t vs;
@@ -1510,6 +1564,7 @@ void app_main(void)
         while (inbox_pop(line, sizeof line, &src)) handle_line(&s_b, &a, line, src, now);
         watch_net(&s_b, now);
         handle_sensors(&s_b, &a, now);
+        slot_watch(&s_b, &a, now);
         poll_battery(&s_b, &a, now);
         usb_link_poll();
 

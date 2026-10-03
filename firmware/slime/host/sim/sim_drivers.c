@@ -187,6 +187,8 @@ void sensors_post(sensor_ev_kind_t kind, float vx, float vy)
     }
     portEXIT_CRITICAL(&s_sens_m);
 }
+static volatile int s_slot[2] = {SLOT_EMPTY, SLOT_INTERACT}; /* "module L|R ..." plugs and unplugs */
+int sensors_slot(int slot) { return s_slot[slot != 0]; }
 void sensors_set_mood(led_mood_t mood) { s_mood = mood; }
 void sensors_set_led_brightness(uint8_t level) { s_led_bright = level; }
 int sim_led_mood(void) { return s_mood; }
@@ -317,6 +319,7 @@ const char *sim_help(void)
            "  shake | bump L|R | tilt G | facedown 0|1\n"
            "  clap | double_clap | beat | motion | light 0-100\n"
            "  nod | head_shake | wave L|R             camera gestures (events only; there is no picture)\n"
+           "  module L|R none|camera|interact|other   plug a module into a slot, or pull it out\n"
            "  camera_stuck 0|1                        a camera module that is plugged in but never starts\n"
            "  battery SOC [MA] | battery off          fuel gauge; MA > 0 = charging\n"
            "  screenshot FILE.bmp\n"
@@ -368,6 +371,15 @@ bool sim_input(const char *cmd, char *err, size_t len)
         portENTER_CRITICAL(&s_sens_m);
         s_sens.light = (uint8_t)atoi(a1);
         portEXIT_CRITICAL(&s_sens_m);
+    } else if (!strcmp(w, "module") && n == 3) {
+        const int t = !strcmp(a2, "camera") ? SLOT_CAMERA : !strcmp(a2, "interact") ? SLOT_INTERACT : !strcmp(a2, "other") ? SLOT_OTHER : SLOT_EMPTY;
+        const int i = toupper((unsigned char)a1[0]) == 'R';
+        s_slot[i] = t;
+        if (t == SLOT_INTERACT || s_slot[!i] != SLOT_INTERACT) { /* the buttons, PIR and light sensor come and go with it */
+            portENTER_CRITICAL(&s_sens_m);
+            s_sens.mod_ok = t == SLOT_INTERACT;
+            portEXIT_CRITICAL(&s_sens_m);
+        }
     } else if (!strcmp(w, "camera_stuck") && n >= 2) {
         s_cam_stuck = held(a1);
     } else if (!strcmp(w, "nod")) {

@@ -305,6 +305,16 @@ void sensors_get(sensors_state_t *out)
     portEXIT_CRITICAL(&s_lock);
 }
 
+int sensors_slot(int slot)
+{
+    mosaico_module_mgr_info_t m;
+    if (mosaico_module_mgr_get_info(slot ? MOSAICO_MODULE_MGR_SLOT_RIGHT : MOSAICO_MODULE_MGR_SLOT_LEFT, &m) != ESP_OK) return SLOT_PENDING;
+    if (m.presence == MOSAICO_MODULE_PRESENCE_ABSENT) return SLOT_EMPTY;
+    if (m.presence != MOSAICO_MODULE_PRESENCE_PRESENT || m.descriptor_state == MOSAICO_MODULE_DESCRIPTOR_UNKNOWN) return SLOT_PENDING;
+    if (m.descriptor_state != MOSAICO_MODULE_DESCRIPTOR_VALID || !m.eeprom.board_type) return SLOT_OTHER;
+    return m.eeprom.board_type;
+}
+
 bool sensors_next_event(sensor_ev_t *ev) { return s_events && xQueueReceive(s_events, ev, 0) == pdTRUE; }
 
 void sensors_set_mood(led_mood_t mood) { s_mood = mood; }

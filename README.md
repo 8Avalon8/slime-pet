@@ -178,6 +178,10 @@ make test        # cc_track 单元测试 + 双核拆分渲染逐像素对比
 - Wi-Fi 密码通过 USB 线（`wifi_setup.py`）或网页面板设置，任何接口都不会把它读出来，日志里也不会出现。
 - 无线更新必须带口令，口令只能通过 USB 线拿到；设备还会检查镜像是不是这个项目的，并校验 SHA-256。
 
+## 社区
+
+这个项目最早分享在 [LINUX DO](https://linux.do) 社区，感谢佬友们的反馈和起名建议。
+
 ## 协议
 
 MIT，见 [LICENSE](LICENSE)。用到的第三方内容（Noto Sans SC 字形、BSP 补丁）见 [THIRD_PARTY.md](THIRD_PARTY.md)。

@@ -1,0 +1,11 @@
+diff --git a/components/esp-mosaico-bsp/onboard/display.c b/components/esp-mosaico-bsp/onboard/display.c
+--- a/components/esp-mosaico-bsp/onboard/display.c
++++ b/components/esp-mosaico-bsp/onboard/display.c
+@@ -261,6 +261,7 @@
+ 
+     esp_lcd_panel_io_spi_config_t io_config = CO5300_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
+     io_config.flags.psram_dma_direct = true;
++    io_config.trans_queue_depth = 64; /* a whole screen is 60 chunks: queue them all, never block the caller */
+     ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)BSP_LCD_SPI_HOST, &io_config, &s_panel_io);
+     if (ret != ESP_OK) {
+         spi_bus_free(BSP_LCD_SPI_HOST);

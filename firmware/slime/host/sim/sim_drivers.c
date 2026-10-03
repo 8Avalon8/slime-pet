@@ -217,6 +217,7 @@ static volatile bool s_cam_stuck;
 int vision_head_trace(vision_head_sample_t *out, int max, uint32_t since) { return 0; }
 void vision_start(void) {}
 void vision_enable(bool on) { s_cam_on = on; }
+void vision_set_features(bool face, bool gesture) {}
 void vision_get(vision_state_t *out)
 {
     *out = (vision_state_t){.enabled = s_cam_on, .err = ESP_ERR_NOT_FOUND, .slot_presence = -1, .slot_desc = -1,
@@ -318,6 +319,7 @@ const char *sim_help(void)
            "  left | right                            Interaction module buttons\n"
            "  shake | bump L|R | tilt G | facedown 0|1\n"
            "  clap | double_clap | beat | motion | light 0-100\n"
+           "  gesture like|dislike|five|ok|call|two|one|three|four   hand gestures (events only)\n"
            "  nod | head_shake | wave L|R             camera gestures (events only; there is no picture)\n"
            "  module L|R none|camera|interact|other   plug a module into a slot, or pull it out\n"
            "  camera_stuck 0|1                        a camera module that is plugged in but never starts\n"
@@ -382,6 +384,14 @@ bool sim_input(const char *cmd, char *err, size_t len)
         }
     } else if (!strcmp(w, "camera_stuck") && n >= 2) {
         s_cam_stuck = held(a1);
+    } else if (!strcmp(w, "gesture") && n >= 2) {
+        static const char *const G[VG_COUNT] = {[VG_ONE] = "one", [VG_TWO] = "two", [VG_THREE] = "three", [VG_FOUR] = "four", [VG_FIVE] = "five",
+                                                [VG_LIKE] = "like", [VG_OK] = "ok", [VG_CALL] = "call", [VG_DISLIKE] = "dislike"};
+        int g = VG_NONE;
+        for (int i = 1; i < VG_COUNT; i++)
+            if (!strcmp(a1, G[i])) g = i;
+        if (!g) return snprintf(err, len, "unknown gesture: %s", a1), false;
+        sensors_post(SEV_GESTURE, (float)g, 1);
     } else if (!strcmp(w, "nod")) {
         sensors_post(SEV_NOD, 0, 0);
     } else if (!strcmp(w, "head_shake")) {

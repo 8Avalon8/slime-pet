@@ -27,6 +27,8 @@ dependencies:
   mosaico_module_camera:
     path: ../../../third_party/esp-mosaico-bsp/components/mosaico_module_camera
   espressif/human_face_detect: "^0.5.0"
+  # Hand gestures: a hand detector, then a classifier on the hand it found (pulls in espressif/hand_detect)
+  espressif/hand_gesture_recognition: "^0.2.0"
 
   # Wake word on the device (WakeNet9); the model goes into the "model" partition
   espressif/esp-sr: "^2.4.7"

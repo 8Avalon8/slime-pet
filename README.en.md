@@ -26,7 +26,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Touch and buttons** | Tap to poke it, hold 1 s for the settings menu; AI key: click to mute, hold to talk (or for the help page with voice off); BOOT key: click to start/stop focus, hold for settings; the Interaction module's left/right keys set the volume |
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
 | **Microphone** | Clap twice to say hi; it bobs to the beat of music (keyboard typing is ignored) |
-| **Camera** (optional module) | Its eyes follow you; tilt your head and it tilts too; nod and it's happy, shake your head and it sulks; stare and it gets shy; cover the lens for peekaboo; reminds you to get up after sitting too long; a corner thumbnail shows what it sees. All computed on the device; no picture leaves it |
+| **Camera** (optional module) | Its eyes follow you; tilt your head and it tilts too; nod and it's happy, shake your head and it sulks; stare and it gets shy; cover the lens for peekaboo; reminds you to get up after sitting too long; a corner thumbnail shows what it sees. Or let it read hand gestures instead: thumb up to praise it, open palm to mute, OK to start the focus timer, the "call me" sign to talk (face detection and hand gestures are two switches; better keep just one on). All computed on the device; no picture leaves it |
 | **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
 | **Everyday** | Chinese / English UI, clock and time-of-day greetings, a background that follows the time of day (dawn / day / dusk / night), quiet hours, a focus timer, sitting reminders and a help page |
@@ -74,6 +74,8 @@ python tools/ota_flash.py
 ```
 
 The first wireless update fetches an update token from the device over USB and caches it in `bridge/.ota_token`; after that no cable is needed.
+
+The two hand gesture models live in flash partitions of their own, which a wireless update cannot write: when upgrading from a version without gestures, flash once more over USB (`python tools/backup_and_flash.py`; settings and level are kept). Until then everything else works, and the slime tells you the models are missing when gestures are switched on.
 
 **Hook up Claude Code** (from the repository root):
 

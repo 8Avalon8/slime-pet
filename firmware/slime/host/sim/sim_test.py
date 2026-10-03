@@ -197,6 +197,28 @@ def run():
     expect("interaction module back: said at once, even while Claude is busy", lambda s: "接上" in s["msg"] and s["mod"]["ok"], timeout=4)
     hook("Stop")
     expect("idle again", state_is("idle"), timeout=30)
+    # hand gestures are commands
+    sim("gesture like")
+    expect("thumb up -> the slime is pleased", lambda s: "赞" in s["msg"] and s["state"] == "greet")
+    expect("idle again", state_is("idle"), timeout=8)
+    sim("gesture five")
+    expect("open palm -> muted", lambda s: "静音" in s["msg"] and not json.loads(http("/api/config"))["sound"])
+    expect("idle again", state_is("idle"), timeout=8)
+    sim("gesture five")
+    expect("open palm again -> sound back", lambda s: "声音打开" in s["msg"] and json.loads(http("/api/config"))["sound"])
+    expect("idle again", state_is("idle"), timeout=8)
+    sim("gesture ok")
+    expect("OK -> focus timer starts", lambda s: s["focus"] > 0)
+    expect("idle again", state_is("idle"), timeout=8)
+    sim("gesture ok")
+    expect("OK again -> focus timer stops", lambda s: s["focus"] == 0)
+    cfg = json.loads(http("/api/config"))
+    if cfg.get("face") is not True or cfg.get("gesture") is not False:
+        failures.append("face on, gestures off by default")
+        print("FAIL  face on, gestures off by default", cfg.get("face"), cfg.get("gesture"))
+    else:
+        print("ok    face on, gestures off by default")
+    expect("idle again", state_is("idle"), timeout=8)
 
     # the bridge's AI comment line
     http("/api/cmd", "say happy 测试通过，真棒！")

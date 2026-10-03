@@ -10,7 +10,7 @@
 #define IDLE_CLOSE_S 30
 
 enum { I_LANG, I_HELP, I_FOCUS, I_FOCUSMIN, I_NIGHTS, I_NIGHTE, I_SCENE, I_SCREEN, I_SLEEPB, I_LED, I_SLEEPM, I_VOL, I_CLAP, I_SOUND, I_BLIP, I_BREATH, I_MOTOR, I_MIC, I_DANCE, I_TILT, I_FPS,
-       I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_AICOMMENT, I_VOICE, I_WAKE, I_SPEAK, I_COUNT };
+       I_CAMERA, I_SIT, I_CAMVIEW, I_WIFI, I_BGM, I_BGMPLAY, I_CAMPIP, I_AICOMMENT, I_VOICE, I_WAKE, I_SPEAK, I_FACE, I_GESTURE, I_COUNT };
 
 static const char *const LANG_OPTS[] = {"中文", "English"};
 /* CFG_SCENE_AUTO, CFG_SCENE_OFF, then the fixed scenes */
@@ -50,6 +50,8 @@ static sl_menu_item_t s_items[I_COUNT] = {
     [I_VOICE] = {"长按 AI 键说话", SL_MI_BOOL},
     [I_WAKE] = {"喊小龙小龙唤醒", SL_MI_BOOL},
     [I_SPEAK] = {"朗读回答", SL_MI_BOOL},
+    [I_FACE] = {"人脸检测", SL_MI_BOOL},
+    [I_GESTURE] = {"手势识别", SL_MI_BOOL},
 };
 
 /* English label and unit per item; the Chinese ones above are kept in s_zh. */
@@ -86,6 +88,8 @@ static const char *const EN[I_COUNT][2] = {
     [I_VOICE] = {"Hold AI key to talk"},
     [I_WAKE] = {"Wake word (Xiaolong Xiaolong)"},
     [I_SPEAK] = {"Read answers aloud"},
+    [I_FACE] = {"Face detection"},
+    [I_GESTURE] = {"Hand gestures"},
 };
 static const char *s_zh[I_COUNT][2];
 
@@ -139,6 +143,8 @@ static void from_cfg(const slime_cfg_t *c)
     s_items[I_VOICE].value = c->voice;
     s_items[I_WAKE].value = c->wake;
     s_items[I_SPEAK].value = c->speak;
+    s_items[I_FACE].value = c->face;
+    s_items[I_GESTURE].value = c->gesture;
 }
 
 static void to_cfg(slime_cfg_t *c)
@@ -170,6 +176,8 @@ static void to_cfg(slime_cfg_t *c)
     c->voice = s_items[I_VOICE].value;
     c->wake = s_items[I_WAKE].value;
     c->speak = s_items[I_SPEAK].value;
+    c->face = s_items[I_FACE].value;
+    c->gesture = s_items[I_GESTURE].value;
 }
 
 void sui_open(const char *wifi, const char *addr, int lv, int exp, int need, double now)

@@ -141,6 +141,8 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
           <label><input type="checkbox" data-k="tilt">倾斜滑动</label>
           <label><input type="checkbox" data-k="show_fps">屏幕显示帧率</label>
           <label><input type="checkbox" data-k="camera">摄像头</label>
+          <label><input type="checkbox" data-k="face">人脸检测：看着你、点头摇头、久坐提醒</label>
+          <label><input type="checkbox" data-k="gesture">手势识别：点赞、手掌等手势当指令（内存只够开一个：两个都开时只认手势）</label>
           <label><input type="checkbox" data-k="cam_pip">摄像头小窗常开</label>
           <label><input type="checkbox" data-k="ai_comment">AI 点评 Claude 的工作</label>
           <label><input type="checkbox" data-k="voice">长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）</label>
@@ -220,7 +222,7 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '自动睡眠':'Auto sleep','音量':'Volume','拍手灵敏度':'Clap sensitivity','久坐提醒':'Sitting reminder','专注时长':'Focus length',
   '背景':'Background','自动（按时间）':'Auto (by the clock)','关闭':'Off','清晨':'Dawn','白天':'Day','黄昏':'Dusk','夜晚':'Night','勿扰开始':'Quiet from','勿扰结束':'Quiet until','音效':'Sound effects','空闲时哼歌':'Hum when idle','对话打字音':'Typing blips',
   '空闲呼吸灯':'Breathing LEDs when idle','震动':'Vibration','麦克风':'Microphone','跟着声音晃':'Bob to the sound','倾斜滑动':'Tilt to slide',
-  '屏幕显示帧率':'Show FPS on screen','摄像头小窗常开':'Camera thumbnail always on','长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）':'Hold the AI key to talk to the slime (needs slime_buddy.py running on the computer)','AI 点评 Claude 的工作':'AI comments on Claude\'s work','喊“小龙小龙”唤醒，不用按键直接说话':'Say "Xiaolong Xiaolong" to talk without the key',
+  '屏幕显示帧率':'Show FPS on screen','人脸检测：看着你、点头摇头、久坐提醒':'Face detection: eye contact, nod and shake, sitting reminder','手势识别：点赞、手掌等手势当指令（内存只够开一个：两个都开时只认手势）':'Hand gestures as commands: thumb up, open palm... (memory fits only one: with both on, only gestures run)','摄像头小窗常开':'Camera thumbnail always on','长按 AI 键和史莱姆说话（需要电脑上运行 slime_buddy.py）':'Hold the AI key to talk to the slime (needs slime_buddy.py running on the computer)','AI 点评 Claude 的工作':'AI comments on Claude\'s work','喊“小龙小龙”唤醒，不用按键直接说话':'Say "Xiaolong Xiaolong" to talk without the key',
   '常用':'QUICK','开始专注':'Start focus','结束专注':'Stop focus',
   '勿扰开始和结束设成同一个钟点就是关闭夜间勿扰。':'Set quiet hours to start and end at the same hour to turn them off.',
   '让史莱姆演一下':'ACT IT OUT','手动切换的状态会保持 15 秒，并播放对应的音效（如果开着）。':'A state picked here lasts 15 seconds and plays its sound (if sound is on).',

@@ -1,6 +1,7 @@
 #include "vision.h"
 
 #include <inttypes.h>
+#include <limits>
 #include <math.h>
 #include <string.h>
 
@@ -9,10 +10,16 @@
 #include "esp_check.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_partition.h"
+#include "nvs.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "dl_cls_base.hpp"
+#include "dl_detect_base.hpp"
+#include "dl_detect_espdet_postprocessor.hpp"
+#include "hand_gesture_cls_postprocessor.hpp"
 #include "human_face_detect.hpp"
 #include "linux/videodev2.h"
 #include "bsp/subboard.h"
@@ -33,6 +40,21 @@ static const char *TAG = "vision";
 #define MIN_INTERNAL_FREE (20 * 1024) /* below this the LCD DMA starts failing: give the camera up */
 #define ALIGN 64
 
+#define HAND_PERIOD_MS 300  /* pause between hand detections while no hand is up (one takes 0.2-0.5 s here) */
+#define HAND_FAST_MS 150    /* ... and while one is */
+#define HAND_FAST_HOLD_MS 1500
+#define GESTURE_MIN_SCORE 0.6f /* the classifier's confidence in its best guess */
+#define GESTURE_STREAK 2       /* this many analysed frames in a row must agree */
+#define GESTURE_REARM_MS 800   /* the hand has to go away (or relax) this long before the same gesture counts again */
+
+/* PSRAM that must be free before a model is loaded: what it takes plus a reserve of 350 KB for
+ * voice recordings and spoken answers. Measured with the camera running: 3.7 MB free with no
+ * model; faces take 0.63 MB (model, picture, snapshot), gestures 2.76 MB (the two model files
+ * read from flash, their working memory, the picture). Both would leave 0.3 MB: too little. */
+#define FACE_NEED (980 * 1024)
+#define GESTURE_NEED (3110 * 1024)
+
+#define HAND_SCALE 0.375f  /* 720x1280 (rotated) -> 270x480: the classifier needs the hand at a decent size */
 #define FACE_SCALE 0.25f   /* 720x1280 (rotated) -> 180x320 for the detector */
 #define TINY_SCALE 0.125f /* -> 90x160 grey for frame differencing (1/16 gives odd widths) */
 #define TINY_MAX (160 * 160)
@@ -40,6 +62,8 @@ static const char *TAG = "vision";
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static vision_state_t s_st;
 static volatile bool s_enabled = true;
+/* what the picture is analysed for: each model is only in memory while its switch is on */
+static volatile bool s_face_on = true, s_gesture_on;
 /* latest detector input, for the web panel's debug snapshot */
 static uint8_t *s_snap;
 static int s_snap_w, s_snap_h;
@@ -68,14 +92,53 @@ typedef struct {
     bool init, held;
 } axis_f;
 
+/* The two hand models, as espressif/hand_detect and espressif/hand_gesture_recognition set them
+ * up, but running from a copy of the model file in PSRAM instead of from flash: esp-dl maps a
+ * model partition into memory, which aborts on this board, and models embedded in the firmware
+ * would occupy PSRAM even while gestures are switched off (the firmware runs from PSRAM). */
+class HandDet : public dl::detect::DetectImpl {
+public:
+    explicit HandDet(const char *fbs)
+    {
+        m_model = new dl::Model(fbs, "espdet_pico_224_224_hand.espdl", fbs::MODEL_LOCATION_IN_FLASH_RODATA, 0, dl::MEMORY_MANAGER_GREEDY, nullptr, false);
+        m_model->minimize();
+        m_image_preprocessor = new dl::image::ImagePreprocessor(m_model, {0, 0, 0}, {255, 255, 255});
+        m_image_preprocessor->enable_letterbox({114, 114, 114});
+        m_postprocessor = new dl::detect::ESPDetPostProcessor(m_model, m_image_preprocessor, 0.25f, 0.5f, 10, {{8, 8, 4, 4}, {16, 16, 8, 8}, {32, 32, 16, 16}});
+    }
+};
+
+class GestureCls : public dl::cls::ClsImpl {
+public:
+    explicit GestureCls(const char *fbs)
+    {
+        m_model = new dl::Model(fbs, "mobilenetv2_0_5_128_128_gesture.espdl", fbs::MODEL_LOCATION_IN_FLASH_RODATA, 0, dl::MEMORY_MANAGER_GREEDY, nullptr, false);
+        m_model->minimize();
+        m_image_preprocessor = new dl::image::ImagePreprocessor(m_model, {123.675, 116.28, 103.53}, {58.395, 57.12, 57.375});
+        m_postprocessor = new dl::cls::HandGestureClsPostprocessor(m_model, 1, std::numeric_limits<float>::lowest(), true);
+    }
+    std::vector<dl::cls::result_t> run_crop(const dl::image::img_t &img, const std::vector<int> &crop)
+    {
+        m_image_preprocessor->preprocess(img, crop);
+        m_model->run();
+        return m_postprocessor->postprocess();
+    }
+};
+
 typedef struct {
     mosaico_camera_handle_t cam;
     mosaico_camera_handle_t zombie; /* a camera whose delete failed (unplugged mid-stream): retried */
     int slot_fails;                 /* consecutive attempts with an I2C error on the left slot */
     ppa_client_handle_t ppa;
     HumanFaceDetect *model;
-    uint8_t *face_buf, *tiny_buf;
-    size_t face_size, tiny_size;
+    HandDet *hand;       /* finds the hand ... */
+    GestureCls *gesture; /* ... and this names what it is doing */
+    char *hand_fbs, *gesture_fbs; /* their model files, read from flash into PSRAM while gestures are on */
+    bool g_proven;       /* a detection has run with these models: loading them is safe */
+    uint8_t *face_buf, *tiny_buf, *hand_buf;
+    size_t face_size, tiny_size, hand_size;
+    uint32_t last_hand_ms, g_seen_ms;
+    int g_last, g_streak, g_fired; /* gesture debouncing: a held hand fires once */
     uint8_t prev[TINY_MAX];
     bool has_prev;
     /* wave tracker */
@@ -100,6 +163,8 @@ typedef struct {
     float kp_yaw, kp_nod; /* latest keypoint signals, for the trace only */
     uint32_t head_cool_until;
 } ctx_t;
+
+static void drop_hand_models(ctx_t *c);
 
 static size_t align_up(size_t v) { return (v + ALIGN - 1) & ~(size_t)(ALIGN - 1); }
 
@@ -129,10 +194,12 @@ static void teardown(ctx_t *c, bool keep_model)
     }
     heap_caps_free(c->face_buf);
     heap_caps_free(c->tiny_buf);
-    c->face_buf = c->tiny_buf = NULL;
+    heap_caps_free(c->hand_buf);
+    c->face_buf = c->tiny_buf = c->hand_buf = NULL;
     if (!keep_model) {
         delete c->model;
         c->model = NULL;
+        drop_hand_models(c);
     }
     c->has_prev = false;
     c->w_samples = 0;
@@ -170,6 +237,145 @@ static void check_slot(ctx_t *c, esp_err_t attempt)
              (int)m.owner_state, s_st.slot_type, esp_err_to_name(m.last_error));
 }
 
+/* The hand models sit in two flash partitions that only a USB flash writes. A device that was
+ * updated over the air does not have them (or has them empty): gestures are then unavailable. */
+static const esp_partition_t *model_partition(const char *name)
+{
+    const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, name);
+    char magic[4] = {};
+    if (!p || esp_partition_read(p, 0, magic, sizeof magic) != ESP_OK || memcmp(magic, "PDL3", 4)) return NULL; /* a packed .espdl */
+    return p;
+}
+
+static bool gesture_pack_ok(void)
+{
+    static int8_t ok = -1; /* flash contents do not change while running */
+    if (ok < 0) {
+        ok = model_partition("hand_det") && model_partition("hand_gesture_cls");
+        if (!ok) ESP_LOGW(TAG, "no hand gesture models in flash: flash once over USB to get them");
+    }
+    return ok;
+}
+
+static char *read_model(const char *name)
+{
+    const esp_partition_t *p = model_partition(name);
+    char *buf = p ? (char *)heap_caps_aligned_alloc(16, p->size, MALLOC_CAP_SPIRAM) : NULL;
+    if (buf && esp_partition_read(p, 0, buf, p->size) != ESP_OK) {
+        heap_caps_free(buf);
+        buf = NULL;
+    }
+    return buf;
+}
+
+/* Loading a model that the library chokes on restarts the device, and with the switch still on it
+ * would do so on every boot. So a mark is left in NVS before the models are loaded and removed
+ * once a detection has run; finding it at load time means the last attempt never got that far,
+ * and gestures stay off until the switch is turned off and on again. */
+static bool gesture_mark(int op) /* 0 = is it set, 1 = set, -1 = clear */
+{
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open("slime", op ? NVS_READWRITE : NVS_READONLY, &h) != ESP_OK) return false;
+    if (!op) nvs_get_u8(h, "g_loading", &v);
+    else if ((op > 0 ? nvs_set_u8(h, "g_loading", 1) : nvs_erase_key(h, "g_loading")) == ESP_OK) nvs_commit(h);
+    nvs_close(h);
+    return v != 0;
+}
+
+/* The face model with the picture it looks at and the debug snapshot of it. */
+static void drop_face_model(ctx_t *c)
+{
+    delete c->model;
+    c->model = NULL;
+    heap_caps_free(c->face_buf);
+    c->face_buf = NULL;
+    if (s_snap_mutex && xSemaphoreTake(s_snap_mutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        heap_caps_free(s_snap);
+        s_snap = NULL;
+        s_snap_w = s_snap_h = 0;
+        xSemaphoreGive(s_snap_mutex);
+    }
+    c->roi_ms = 0;
+    portENTER_CRITICAL(&s_lock);
+    s_st.face = s_st.kp_ok = false;
+    s_st.faces = 0;
+    portEXIT_CRITICAL(&s_lock);
+}
+
+static void drop_hand_models(ctx_t *c)
+{
+    delete c->gesture;
+    delete c->hand;
+    c->gesture = NULL;
+    c->hand = NULL;
+    heap_caps_free(c->hand_fbs);
+    heap_caps_free(c->gesture_fbs);
+    heap_caps_free(c->hand_buf);
+    c->hand_fbs = c->gesture_fbs = NULL;
+    c->hand_buf = NULL;
+}
+
+/* The models follow their switches: loaded when a feature is turned on, freed when it is turned
+ * off, so that only what is in use takes memory. */
+static void sync_models(ctx_t *c)
+{
+    static bool failed; /* the last attempt to load the hand models never finished (see gesture_mark) */
+    if (!s_gesture_on && failed) { /* switched off: the next switching on may try again */
+        failed = false;
+        gesture_mark(-1);
+    }
+    const bool face = s_face_on, pack = !s_gesture_on || (gesture_pack_ok() && !failed), gesture = s_gesture_on && pack;
+    if (!face && c->model) {
+        drop_face_model(c);
+    }
+    if (!gesture && c->hand) {
+        drop_hand_models(c);
+        c->g_last = c->g_streak = c->g_fired = 0;
+        portENTER_CRITICAL(&s_lock);
+        s_st.hand = false;
+        s_st.gesture = VG_NONE;
+        portEXIT_CRITICAL(&s_lock);
+    }
+    /* Both switched on does not fit: gestures win (they are the commands) and faces wait until
+     * gestures are switched off again. A model that does not fit is simply not loaded. */
+    if (gesture && !c->hand && c->model && heap_caps_get_free_size(MALLOC_CAP_SPIRAM) < GESTURE_NEED) {
+        drop_face_model(c);
+    }
+    const size_t room = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    bool load_hand = gesture && !c->hand && room >= GESTURE_NEED;
+    if (load_hand && !c->g_proven && gesture_mark(0)) {
+        ESP_LOGW(TAG, "the hand models did not finish loading last time: gestures stay off until switched off and on again");
+        failed = true;
+        load_hand = false;
+    }
+    const bool load_face = face && !c->model && room >= FACE_NEED + (load_hand ? GESTURE_NEED : 0);
+    if (load_face || load_hand) {
+        /* as in wake.c: the loaders' many small allocations must not land in the scarce internal RAM */
+        heap_caps_malloc_extmem_enable(0);
+        if (load_hand) {
+            if (!c->g_proven) gesture_mark(1);
+            c->hand_fbs = read_model("hand_det");
+            c->gesture_fbs = read_model("hand_gesture_cls");
+            if (c->hand_fbs && c->gesture_fbs) {
+                c->hand = new HandDet(c->hand_fbs);
+                c->gesture = new GestureCls(c->gesture_fbs);
+            } else {
+                drop_hand_models(c);
+            }
+        }
+        if (load_face) c->model = new HumanFaceDetect(static_cast<HumanFaceDetect::model_type_t>(CONFIG_DEFAULT_HUMAN_FACE_DETECT_MODEL), false);
+        heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+        ESP_LOGI(TAG, "models: face %s, gestures %s; free internal %u KB, PSRAM %u KB", c->model ? "on" : "off", c->hand ? "on" : "off",
+                 (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024), (unsigned)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+    }
+    portENTER_CRITICAL(&s_lock);
+    s_st.face_on = c->model != NULL;
+    s_st.gesture_on = c->hand != NULL;
+    s_st.gesture_missing = s_gesture_on && !pack;
+    portEXIT_CRITICAL(&s_lock);
+}
+
 static esp_err_t bring_up(ctx_t *c)
 {
     if (c->zombie) { /* finish releasing the last one first */
@@ -177,8 +383,7 @@ static esp_err_t bring_up(ctx_t *c)
         c->zombie = NULL;
     }
     /* model first: camera buffers would otherwise fragment PSRAM (BSP ai_model_gallery note) */
-    if (!c->model) c->model = new HumanFaceDetect(static_cast<HumanFaceDetect::model_type_t>(CONFIG_DEFAULT_HUMAN_FACE_DETECT_MODEL), false);
-    ESP_RETURN_ON_FALSE(c->model, ESP_ERR_NO_MEM, TAG, "face model");
+    sync_models(c);
 
     const size_t before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     mosaico_camera_config_t cfg = MOSAICO_CAMERA_DEFAULT_CONFIG();
@@ -192,9 +397,8 @@ static esp_err_t bring_up(ctx_t *c)
     c->face_size = align_up((size_t)(info.width * FACE_SCALE + 1) * (size_t)(info.height * FACE_SCALE + 1) * 3);
     c->tiny_size = align_up((size_t)(info.width * TINY_SCALE + 1) * (size_t)(info.height * TINY_SCALE + 1) * 3);
     const uint32_t caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
-    c->face_buf = (uint8_t *)heap_caps_aligned_calloc(ALIGN, 1, c->face_size, caps);
-    c->tiny_buf = (uint8_t *)heap_caps_aligned_calloc(ALIGN, 1, c->tiny_size, caps);
-    ESP_RETURN_ON_FALSE(c->face_buf && c->tiny_buf, ESP_ERR_NO_MEM, TAG, "buffers");
+    c->tiny_buf = (uint8_t *)heap_caps_aligned_calloc(ALIGN, 1, c->tiny_size, caps); /* face_buf: when faces are looked for */
+    ESP_RETURN_ON_FALSE(c->tiny_buf, ESP_ERR_NO_MEM, TAG, "buffers");
 
     ppa_client_config_t pc = {};
     pc.oper_type = PPA_OPERATION_SRM;
@@ -471,10 +675,86 @@ static void head_motion(ctx_t *c, int w, int h, uint32_t now)
     c->prof_ok = true;
 }
 
+static int gesture_id(const char *name)
+{
+    static const struct {
+        const char *name;
+        int id;
+    } G[] = {{"one", VG_ONE}, {"two", VG_TWO}, {"three", VG_THREE}, {"four", VG_FOUR}, {"five", VG_FIVE},
+             {"like", VG_LIKE}, {"ok", VG_OK}, {"call", VG_CALL}, {"dislike", VG_DISLIKE}};
+    for (const auto &g : G)
+        if (name && !strcmp(name, g.name)) return g.id;
+    return VG_NONE; /* "no_gesture", "no_hand" */
+}
+
+/* Hand gestures: find the nearest hand, then classify a crop of it. A gesture is posted once
+ * when it has been seen GESTURE_STREAK times in a row; holding it does not repeat it. */
+static void detect_hands(ctx_t *c, const mosaico_camera_frame_t *f, uint32_t now)
+{
+    if (!c->hand_buf) {
+        c->hand_size = align_up((size_t)(f->width * HAND_SCALE + 1) * (size_t)(f->height * HAND_SCALE + 1) * 3);
+        c->hand_buf = (uint8_t *)heap_caps_aligned_calloc(ALIGN, 1, c->hand_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+        if (!c->hand_buf) return;
+    }
+    int w, h;
+    if (shrink(c, f, HAND_SCALE, c->hand_buf, c->hand_size, &w, &h) != ESP_OK) return;
+    dl::image::img_t img = {};
+    img.data = c->hand_buf;
+    img.width = (uint16_t)w;
+    img.height = (uint16_t)h;
+    img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_BGR888;
+    const int64_t t0 = esp_timer_get_time();
+    auto &res = c->hand->run(img);
+    const dl::detect::result_t *best = NULL;
+    for (const auto &r : res)
+        if (!best || r.box[2] - r.box[0] > best->box[2] - best->box[0]) best = &r; /* the biggest hand is the nearest one */
+    int id = VG_NONE;
+    float score = 0;
+    if (best) {
+        const std::vector<int> crop = {best->box[0] < 0 ? 0 : best->box[0], best->box[1] < 0 ? 0 : best->box[1],
+                                       best->box[2] > w ? w : best->box[2], best->box[3] > h ? h : best->box[3]};
+        if (crop[2] - crop[0] >= 8 && crop[3] - crop[1] >= 8) {
+            const auto cls = c->gesture->run_crop(img, crop);
+            if (!cls.empty()) {
+                id = gesture_id(cls[0].cat_name);
+                score = cls[0].score;
+            }
+        }
+        c->last_hand_ms = now;
+    }
+    const float ms = (esp_timer_get_time() - t0) / 1000.0f;
+    if (!c->g_proven) { /* both models have run once (the classifier on any patch, if there was no hand): see gesture_mark */
+        if (!best) c->gesture->run_crop(img, {0, 0, w < 128 ? w : 128, h < 128 ? h : 128});
+        c->g_proven = true;
+        gesture_mark(-1);
+    }
+    if (id != VG_NONE && score < GESTURE_MIN_SCORE) id = VG_NONE;
+    if (id != VG_NONE) {
+        c->g_streak = id == c->g_last ? c->g_streak + 1 : 1;
+        c->g_last = id;
+        c->g_seen_ms = now;
+        if (c->g_streak == GESTURE_STREAK && id != c->g_fired) {
+            c->g_fired = id;
+            sensors_post(SEV_GESTURE, (float)id, score);
+        }
+    } else {
+        c->g_last = VG_NONE;
+        c->g_streak = 0;
+        if (now - c->g_seen_ms > GESTURE_REARM_MS) c->g_fired = VG_NONE;
+    }
+    portENTER_CRITICAL(&s_lock);
+    s_st.hand = best != NULL;
+    s_st.gesture = id;
+    s_st.gesture_score = score;
+    s_st.hand_ms = ms;
+    portEXIT_CRITICAL(&s_lock);
+}
+
 static void detect_faces(ctx_t *c, const mosaico_camera_frame_t *f)
 {
     int w, h;
-    if (shrink(c, f, FACE_SCALE, c->face_buf, c->face_size, &w, &h) != ESP_OK) return;
+    if (!c->face_buf) c->face_buf = (uint8_t *)heap_caps_aligned_calloc(ALIGN, 1, c->face_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+    if (!c->face_buf || shrink(c, f, FACE_SCALE, c->face_buf, c->face_size, &w, &h) != ESP_OK) return;
     if (s_snap_mutex && xSemaphoreTake(s_snap_mutex, 0) == pdTRUE) {
         if (!s_snap) s_snap = (uint8_t *)heap_caps_malloc(c->face_size, MALLOC_CAP_SPIRAM);
         if (s_snap) {
@@ -689,15 +969,20 @@ static void render_preview(ctx_t *c, const mosaico_camera_frame_t *f)
     const float scale = s_preview == VISION_PV_PIP ? PIP_SCALE : PREVIEW_SCALE;
     const int ow = (int)ceilf(f->height * scale), oh = (int)ceilf(f->width * scale);
     const size_t need = (size_t)ow * oh * 2;
-    if (!s_pv[0]) { /* sized for the full view, whichever mode comes first */
-        const size_t full = (size_t)ceilf(f->height * PREVIEW_SCALE) * (size_t)ceilf(f->width * PREVIEW_SCALE) * 2;
-        s_pv_size = (full + ALIGN - 1) & ~(size_t)(ALIGN - 1);
+    const size_t want = (need + ALIGN - 1) & ~(size_t)(ALIGN - 1);
+    if (want != s_pv_size || !s_pv[0] || !s_pv[1]) {
+        /* sized for the mode in use: the thumbnail takes a ninth of what the full view does, and the
+         * half megabyte in between is what the gesture models need */
+        if (!s_snap_mutex || xSemaphoreTake(s_snap_mutex, pdMS_TO_TICKS(200)) != pdTRUE) return;
         for (int i = 0; i < 2; i++) {
-            s_pv[i] = (uint16_t *)heap_caps_aligned_calloc(ALIGN, 1, s_pv_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+            heap_caps_free(s_pv[i]);
+            s_pv[i] = (uint16_t *)heap_caps_aligned_calloc(ALIGN, 1, want, MALLOC_CAP_SPIRAM | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
         }
-        if (!s_pv[0] || !s_pv[1]) return;
+        s_pv_size = s_pv[0] && s_pv[1] ? want : 0;
+        s_pv_front = -1;
+        xSemaphoreGive(s_snap_mutex);
+        if (!s_pv_size) return;
     }
-    if (need > s_pv_size) return;
     const int back = s_pv_front == 0 ? 1 : 0;
     const uint32_t bpl = f->bytes_per_line ? f->bytes_per_line : f->width * 2U;
     esp_cache_msync((void *)f->data, f->size, ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
@@ -736,12 +1021,13 @@ static void vision_task(void *arg)
     ctx_t &c = *static_cast<ctx_t *>(heap_caps_calloc(1, sizeof(ctx_t), MALLOC_CAP_SPIRAM));
     swing_reset(&c.sw_yaw);
     swing_reset(&c.sw_pitch);
-    uint32_t next_face = 0, next_motion = 0;
+    uint32_t next_face = 0, next_motion = 0, next_hand = 0;
     for (;;) {
         if (!s_enabled) {
-            if (c.cam || c.model) teardown(&c, false);
+            if (c.cam || c.model || c.hand) teardown(&c, false);
             portENTER_CRITICAL(&s_lock);
-            s_st.ok = s_st.face = false;
+            s_st.ok = s_st.face = s_st.hand = s_st.face_on = s_st.gesture_on = false;
+            s_st.gesture = VG_NONE;
             portEXIT_CRITICAL(&s_lock);
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
@@ -777,10 +1063,19 @@ static void vision_task(void *arg)
             continue;
         }
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+        sync_models(&c); /* a switch was flipped in the settings */
+        /* one model per frame: with both switches on they take turns, each at a lower rate */
         bool face_frame = false;
-        if ((int32_t)(now - next_face) >= 0) {
+        if (c.model && (int32_t)(now - next_face) >= 0) {
             next_face = now + (now - c.last_face_ms < FACE_FAST_HOLD_MS ? FACE_FAST_MS : FACE_PERIOD_MS);
             detect_faces(&c, &f);
+            face_frame = true;
+        } else if (c.hand && (int32_t)(now - next_hand) >= 0) {
+            if (s_preview != VISION_PV_OFF) render_preview(&c, &f); /* a detection takes several frames' time: show this one first */
+            detect_hands(&c, &f, now);
+            /* counted from the end: detection is slow, and the preview and the wave detector need the frames in between */
+            const uint32_t done = (uint32_t)(esp_timer_get_time() / 1000);
+            next_hand = done + (done - c.last_hand_ms < HAND_FAST_HOLD_MS ? HAND_FAST_MS : HAND_PERIOD_MS);
             face_frame = true;
         } else {
             /* the thumbnail only has to show whether you are in frame: 5 fps spares the PSRAM bandwidth
@@ -824,6 +1119,12 @@ extern "C" void vision_enable(bool on)
     portENTER_CRITICAL(&s_lock);
     s_st.enabled = on;
     portEXIT_CRITICAL(&s_lock);
+}
+
+extern "C" void vision_set_features(bool face, bool gesture)
+{
+    s_face_on = face;
+    s_gesture_on = gesture;
 }
 
 extern "C" void vision_get(vision_state_t *out)

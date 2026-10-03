@@ -62,3 +62,8 @@ CONFIG_PM_SLEEP_FUNC_IN_IRAM=y
 CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS=y
 CONFIG_SR_MN_CN_NONE=y
 CONFIG_SR_MN_EN_NONE=y
+
+# Hand gesture models live in their own flash partitions (see partitions.csv), not inside the
+# firmware: the firmware runs from PSRAM, and models embedded in it would take 1.5 MB of it for good
+CONFIG_HAND_DETECT_MODEL_IN_FLASH_PARTITION=y
+CONFIG_HAND_GESTURE_CLS_MODEL_IN_FLASH_PARTITION=y

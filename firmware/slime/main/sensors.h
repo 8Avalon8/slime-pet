@@ -42,6 +42,7 @@ typedef enum {
     SEV_UNCOVER, /* ... and away again */
     SEV_NOD,        /* head nodded yes */
     SEV_HEAD_SHAKE, /* head shaken no */
+    SEV_GESTURE,    /* a hand gesture; vx: which (vision_gesture_t), vy: confidence 0..1 */
 } sensor_ev_kind_t;
 
 typedef struct {

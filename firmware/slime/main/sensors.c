@@ -199,11 +199,14 @@ static bool led_frame(led_mood_t mood, uint32_t f, mosaico_interact_rgb_t *c, in
             break;
         }
     }
-    const uint32_t k = s_led_bright;
+    /* The setting is how bright it should look, and eyes are far from linear: an LED driven at
+     * 20% still looks nearly full on. Squaring it (20% -> 4% drive) makes the slider do what it
+     * says. Rounded up, so that a dim setting does not turn faint colours into gaps. */
+    const uint32_t lvl = s_led_bright, k = lvl * lvl / 255;
     for (int i = 0; i < n; i++) {
-        c[i].r = (uint8_t)(c[i].r * k / 255);
-        c[i].g = (uint8_t)(c[i].g * k / 255);
-        c[i].b = (uint8_t)(c[i].b * k / 255);
+        c[i].r = (uint8_t)((c[i].r * k + 254) / 255);
+        c[i].g = (uint8_t)((c[i].g * k + 254) / 255);
+        c[i].b = (uint8_t)((c[i].b * k + 254) / 255);
     }
     return mood != MOOD_OFF || f == 0;
 }

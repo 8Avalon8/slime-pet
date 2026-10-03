@@ -1,19 +1,31 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Local patches to the BSP clone in ../../third_party (not under our version control).
-# Idempotent: already-applied patches are skipped; failures only warn.
+# Local patches to the BSP clone in ../../third_party (not under our version control), applied
+# in this order; each one builds on the ones before it. Idempotent: the last patch that is already
+# in the tree is found first, and only the later ones are applied. Failures only warn.
 set(SLIME_BSP_DIR "${CMAKE_CURRENT_LIST_DIR}/../../third_party/esp-mosaico-bsp")
-foreach(patch bsp-lcd-psram-dma-direct.patch)
-    set(p "${CMAKE_CURRENT_LIST_DIR}/patches/${patch}")
-    execute_process(COMMAND git -C "${SLIME_BSP_DIR}" apply --reverse --check "${p}" RESULT_VARIABLE already OUTPUT_QUIET ERROR_QUIET)
-    if(NOT already EQUAL 0)
-        execute_process(COMMAND git -C "${SLIME_BSP_DIR}" apply "${p}" RESULT_VARIABLE rc)
+set(SLIME_BSP_PATCHES bsp-lcd-psram-dma-direct.patch bsp-lcd-queue-depth.patch)
+set(slime_first_missing 0)
+set(slime_i 0)
+foreach(patch ${SLIME_BSP_PATCHES})
+    math(EXPR slime_i "${slime_i} + 1")
+    execute_process(COMMAND git -C "${SLIME_BSP_DIR}" apply --reverse --check "${CMAKE_CURRENT_LIST_DIR}/patches/${patch}"
+                    RESULT_VARIABLE not_there OUTPUT_QUIET ERROR_QUIET)
+    if(not_there EQUAL 0)
+        set(slime_first_missing ${slime_i}) # this one is in (and so are the earlier ones it sits on)
+    endif()
+endforeach()
+set(slime_i 0)
+foreach(patch ${SLIME_BSP_PATCHES})
+    if(slime_i GREATER_EQUAL slime_first_missing)
+        execute_process(COMMAND git -C "${SLIME_BSP_DIR}" apply "${CMAKE_CURRENT_LIST_DIR}/patches/${patch}" RESULT_VARIABLE rc)
         if(rc EQUAL 0)
             message(STATUS "slime: applied ${patch}")
         else()
             message(WARNING "slime: could not apply ${patch} to ${SLIME_BSP_DIR}")
         endif()
     endif()
+    math(EXPR slime_i "${slime_i} + 1")
 endforeach()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

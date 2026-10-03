@@ -78,6 +78,10 @@ static sg_scratch_t s_scratch[2];
 static SemaphoreHandle_t s_go, s_done;
 static const sl_pose_t *s_job_pose;
 static sl_rect_t s_job_dirty;
+/* the worker's other job: its half of the copy into the wire buffer (rows y0..y1 of columns x0.., w wide) */
+static volatile bool s_job_copy;
+static struct { int x0, w, y0, y1; uint16_t *dst; } s_copy_job;
+static bool s_dual; /* the render worker exists */
 
 /* perf counters, seconds accumulated since the last stats line */
 static double s_t_render, s_t_copy, s_t_wait, s_t_touch, s_t_anim;
@@ -108,6 +112,21 @@ static void wait_xfer(void)
     }
 }
 
+/* Rows y0..y1 of the framebuffer, columns x0..x0+w (both even), byte-swapped into dst: the panel
+ * wants big-endian RGB565. Two pixels per 32-bit word: x0 and w are even, so both sides are aligned. */
+static void copy_swapped(uint16_t *dst, int x0, int w, int y0, int y1)
+{
+    for (int y = y0; y < y1; y++) {
+        const uint32_t *src = (const uint32_t *)&s_fb[y * SCR + x0];
+        uint32_t *d = (uint32_t *)dst;
+        for (int i = 0; i < w / 2; i++) {
+            const uint32_t v = src[i];
+            d[i] = ((v & 0x00ff00ffu) << 8) | ((v >> 8) & 0x00ff00ffu);
+        }
+        dst += w;
+    }
+}
+
 /* Copy rect from the framebuffer into the wire buffer (byte-swapped) and start DMA. */
 static void push_rect(sl_rect_t r)
 {
@@ -120,14 +139,20 @@ static void push_rect(sl_rect_t r)
     if (r.x1 <= r.x0 || r.y1 <= r.y0) return;
     wait_xfer();
     const double t0 = now_s();
-    const int w = r.x1 - r.x0;
-    uint16_t *dst = s_wire;
-    for (int y = r.y0; y < r.y1; y++) {
-        const uint16_t *src = &s_fb[y * SCR + r.x0];
-        for (int x = 0; x < w; x++) {
-            dst[x] = __builtin_bswap16(src[x]);
-        }
-        dst += w;
+    const int w = r.x1 - r.x0, rows = r.y1 - r.y0;
+    if (s_dual && (long)w * rows > 8000) { /* worth waking the other core: it takes the lower half */
+        const int mid = r.y0 + rows / 2;
+        s_copy_job.x0 = r.x0;
+        s_copy_job.w = w;
+        s_copy_job.y0 = mid;
+        s_copy_job.y1 = r.y1;
+        s_copy_job.dst = s_wire + (size_t)(mid - r.y0) * w;
+        s_job_copy = true;
+        xSemaphoreGive(s_go);
+        copy_swapped(s_wire, r.x0, w, r.y0, mid);
+        xSemaphoreTake(s_done, portMAX_DELAY);
+    } else {
+        copy_swapped(s_wire, r.x0, w, r.y0, r.y1);
     }
     const size_t bytes = (size_t)w * (r.y1 - r.y0) * 2;
     esp_cache_msync(s_wire, (bytes + BUF_ALIGN - 1) & ~(BUF_ALIGN - 1), ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
@@ -1277,6 +1302,12 @@ static void render_worker(void *arg)
 {
     for (;;) {
         xSemaphoreTake(s_go, portMAX_DELAY);
+        if (s_job_copy) {
+            s_job_copy = false;
+            copy_swapped(s_copy_job.dst, s_copy_job.x0, s_copy_job.w, s_copy_job.y0, s_copy_job.y1);
+            xSemaphoreGive(s_done);
+            continue;
+        }
         render_part(&s_cv[1], s_job_pose, s_job_dirty);
         xSemaphoreGive(s_done);
     }
@@ -1342,6 +1373,7 @@ void app_main(void)
     s_go = xSemaphoreCreateBinary();
     s_done = xSemaphoreCreateBinary();
     const bool dual = s_go && s_done && xTaskCreatePinnedToCore(render_worker, "render1", 12288, NULL, 5, NULL, 1) == pdPASS;
+    s_dual = dual;
     if (!dual) ESP_LOGW(TAG, "render worker unavailable, single-core rendering");
 
     sl_anim_t a;
@@ -1744,6 +1776,9 @@ void app_main(void)
             s_px_pushed = 0;
         }
         const int spent = (int)((now_s() - now) * 1000);
-        vTaskDelay(pdMS_TO_TICKS(spent < FRAME_MS ? FRAME_MS - spent : 1));
+        /* While an update is being written the web server task keeps core 0 busy; this loop must
+         * then really sleep each frame, or the idle task never runs and the task watchdog fires. */
+        if (ota_progress() >= 0) vTaskDelay(pdMS_TO_TICKS(60));
+        else vTaskDelay(pdMS_TO_TICKS(spent < FRAME_MS ? FRAME_MS - spent : 1));
     }
 }

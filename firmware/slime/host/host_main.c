@@ -4,11 +4,13 @@
  *   host_sim frame <state> <t> <out.bmp> [dialog]  dialog text, "\\n" = second line
  *   host_sim sheet <out.bmp>              13 states, raw poses, 4-column contact sheet
  *   host_sim frame <state> <t> <out.bmp>  one full frame (HUD + dialog), raw pose
+ *   host_sim helpers <n> <t> <state> <out.bmp>  n subagent helpers, t s after they were sent out
  *   host_sim bench                        time 600 animated frames with springs
  *   host_sim menu <page> <out.bmp> [flash_row]   settings screen
  *
  * SLIME_LANG=en renders the English UI.
  */
+#define _POSIX_C_SOURCE 199309L /* clock_gettime under -std=c11 on Linux */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,6 +78,19 @@ static void render_raw(sg_canvas_t *cv, sl_state_t st, float t)
     if (p.dim < 1) sg_dim_rect(cv, 0, 0, S, S, p.dim);
 }
 
+/* Helper slimes `t` seconds after `n` of them were asked for, around a raw pose at that time. */
+static void pose_with_helpers(sl_anim_t *a, sl_pose_t *p, sl_state_t st, int n, float t)
+{
+    sl_anim_init(a, 0);
+    a->state = st;
+    a->ext_minis = n;
+    for (int i = 0; i <= (int)(t * 60); i++) {
+        sl_anim_pose_raw(a, st, i / 60.0f, i / 60.0f, 1 / 60.0f, p);
+        sl_anim_minis(a, i / 60.0, p);
+    }
+    p->rip = 0;
+}
+
 static double now_s(void)
 {
     struct timespec ts;
@@ -129,6 +144,24 @@ int main(int argc, char **argv)
         sl_render_hud(&cv, a.lv, a.hp);
         sl_render_dialog(&cv, msg, -1, true);
         write_bmp(argv[4], fb, S, S, S);
+        return 0;
+    }
+    if (argc >= 6 && !strcmp(argv[1], "helpers")) {
+        sg_canvas_t cv;
+        sg_canvas_init(&cv, fb, S, S, S);
+        sl_anim_t a;
+        sl_pose_t p;
+        const int n = atoi(argv[2]);
+        pose_with_helpers(&a, &p, parse_state(argv[4]), n, (float)atof(argv[3]));
+        sg_fill_rect(&cv, 0, 0, S, S, 0);
+        sl_render_slime(&cv, &p);
+        if (p.dim < 1) sg_dim_rect(&cv, 0, 0, S, S, p.dim);
+        char msg[128];
+        snprintf(msg, sizeof msg, "史莱姆和 %d 个分身正在干活！\nTask: explore the repo", n);
+        sl_render_hud(&cv, a.lv, a.hp);
+        sl_render_dialog(&cv, msg, -1, true);
+        write_bmp(argv[5], fb, S, S, S);
+        printf("%d helpers drawn\n", p.nmini);
         return 0;
     }
     if (argc >= 4 && !strcmp(argv[1], "menu")) { /* settings screen preview: menu <page> out.bmp */
@@ -197,9 +230,13 @@ int main(int argc, char **argv)
             for (int k = 0; k < 6; k++) {
                 const float t = 0.17f + k * 0.41f;
                 sl_anim_t a;
-                sl_anim_init(&a, 0);
                 sl_pose_t p;
-                sl_anim_pose_raw(&a, (sl_state_t)st, t, t, 0.016f, &p);
+                if (k % 2) { /* with helpers: some still in flight, some hopping */
+                    pose_with_helpers(&a, &p, (sl_state_t)st, 4, 0.3f + k * 0.1f);
+                } else {
+                    sl_anim_init(&a, 0);
+                    sl_anim_pose_raw(&a, (sl_state_t)st, t, t, 0.016f, &p);
+                }
                 p.rip = 0.02f;
                 sg_canvas_t one;
                 sg_canvas_init(&one, ref, S, S, S);
@@ -223,6 +260,6 @@ int main(int argc, char **argv)
         printf("splitcheck: %d/%d frames differ\n", bad_frames, SL_STATE_COUNT * 6);
         return bad_frames ? 1 : 0;
     }
-    fprintf(stderr, "usage: host_sim sheet out.bmp | frame <state> <t> out.bmp | bench | splitcheck\n");
+    fprintf(stderr, "usage: host_sim sheet out.bmp | frame <state> <t> out.bmp | helpers <n> <t> <state> out.bmp | bench | splitcheck\n");
     return 2;
 }

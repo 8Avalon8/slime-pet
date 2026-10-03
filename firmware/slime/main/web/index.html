@@ -262,11 +262,11 @@ function render(s){
   $('state').textContent=stName(s.state);
   $('msg').textContent=s.msg;
   const c=s.cc;
-  $('cc').innerHTML=`<span class="st-${c.status}">${ccName(c.status)}</span>`+(c.busy>1?T(` · ${c.busy} 个会话在忙`,` · ${c.busy} sessions busy`):'');
+  $('cc').innerHTML=`<span class="st-${c.status}">${ccName(c.status)}</span>`+(c.busy>1?T(` · ${c.busy} 个会话在忙`,` · ${c.busy} sessions busy`):'')+(c.subs?T(` · ${c.subs} 个分身在帮忙`,` · ${c.subs} helpers out`):'');
   $('ccd').textContent=c.detail||'—';
   $('ccn').textContent=T(`${c.ok} 条（丢弃过期 ${c.stale}）`,`${c.ok} (${c.stale} stale dropped)`);
   const ago=a=>a<60?T(a.toFixed(0)+' 秒前',a.toFixed(0)+' s ago'):T(Math.floor(a/60)+' 分前',Math.floor(a/60)+' min ago');
-  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${ccName(x.st)}</td><td class="d">${esc(x.detail||'—')}</td><td>${ago(x.age)}</td></tr>`).join(''):`<tr><td colspan="4" style="color:var(--dim)">${T('还没有会话。新开一个 Claude Code 会话试试。','No sessions yet. Start a Claude Code session to try it.')}</td></tr>`;
+  $('sess').innerHTML=c.sessions.length?c.sessions.map(x=>`<tr><td>${esc(x.sid)}</td><td class="st-${x.st}">${ccName(x.st)}${x.subs?T(` +${x.subs} 分身`,` +${x.subs} helpers`):''}</td><td class="d">${esc(x.detail||'—')}</td><td>${ago(x.age)}</td></tr>`).join(''):`<tr><td colspan="4" style="color:var(--dim)">${T('还没有会话。新开一个 Claude Code 会话试试。','No sessions yet. Start a Claude Code session to try it.')}</td></tr>`;
   const m=s.imu;
   if(m.ok){$('tilt').style.left=`calc(${50+Math.max(-45,Math.min(45,m.tilt*90))}% - 9px)`;$('tiltv').textContent=(m.tilt>=0?'+':'')+m.tilt.toFixed(2)+' g'+(m.face?T(' · 屏幕朝下',' · face down'):'');
     $('acc').textContent=`${m.ax.toFixed(2)} / ${m.ay.toFixed(2)} / ${m.az.toFixed(2)} g`}else{$('tiltv').textContent=T('IMU 不可用','IMU unavailable');$('acc').textContent='—'}

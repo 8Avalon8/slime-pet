@@ -40,6 +40,7 @@ typedef enum { SL_MOUTH_GRIN = 0, SL_MOUTH_BIG, SL_MOUTH_SMALL, SL_MOUTH_O, SL_M
 typedef enum { SL_FX_HEART = 0, SL_FX_BANG, SL_FX_Z, SL_FX_SPARKLE, SL_FX_STAR, SL_FX_DROP, SL_FX_BOLT, SL_FX_DOT } sl_fx_kind_t;
 
 #define SL_MAX_FX 12
+#define SL_MAX_MINIS 4 /* helper slimes, one per running Claude Code subagent */
 
 typedef struct {
     sl_fx_kind_t kind;
@@ -48,6 +49,17 @@ typedef struct {
     uint32_t rgb;
     float alpha;
 } sl_fx_t;
+
+/* A helper slime: a small copy that stands beside the pet while a subagent runs. */
+typedef struct {
+    float x;    /* screen px, centre of its base */
+    float jump; /* px above the ground */
+    float s;    /* size relative to the pet */
+    float sx, sy;
+    float look; /* -1..1, horizontal gaze */
+    sl_eye_t eyes; /* SL_EYE_OPEN, SL_EYE_CLOSED or SL_EYE_HAPPY */
+    bool front;    /* in flight: drawn over the pet, not behind it */
+} sl_mini_t;
 
 /* Everything the renderer needs for one frame. */
 typedef struct {
@@ -61,6 +73,8 @@ typedef struct {
     sl_mouth_t mouth;
     sl_fx_t fx[SL_MAX_FX];
     int nfx;
+    sl_mini_t mini[SL_MAX_MINIS];
+    int nmini;
     double T; /* global seconds */
     float t;  /* seconds since state entry */
 } sl_pose_t;
@@ -80,6 +94,11 @@ typedef struct {
     float ext_look_x, ext_look_y;
     /* external lean added to the state's sway (camera head-tilt mirror), + = top to screen right */
     float ext_sway;
+    /* helper slimes: how many should be out (set by the caller), and each slot's life */
+    int ext_minis;
+    uint8_t mini_st[SL_MAX_MINIS]; /* 0 = off, 1 = out (popping in, then hopping), 2 = hopping back */
+    double mini_t[SL_MAX_MINIS];   /* time of the last change */
+    double mini_last;              /* last pop in or out: they come and go one at a time */
     /* jelly springs */
     bool j_init;
     float j_sx, j_sy, j_vsx, j_vsy, j_sw, j_vsw, j_rip, j_pj, j_pdx, j_lx, j_ly, j_vlx, j_vly;
@@ -90,6 +109,8 @@ void sl_anim_init(sl_anim_t *a, double now);
 void sl_anim_set_state(sl_anim_t *a, sl_state_t s, double now);
 /* Advance to `now`; fills `out` with the jelly-filtered pose. */
 void sl_anim_step(sl_anim_t *a, double now, float dt, sl_pose_t *out);
+/* Add the helper slimes to `out` (sl_anim_step does this; exposed for snapshots). */
+void sl_anim_minis(sl_anim_t *a, double now, sl_pose_t *out);
 /* Raw state pose without springs (for deterministic snapshots). */
 void sl_anim_pose_raw(sl_anim_t *a, sl_state_t s, float t, double T, float dt, sl_pose_t *out);
 

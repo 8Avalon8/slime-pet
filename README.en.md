@@ -14,7 +14,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 
 | | |
 |---|---|
-| **Claude Code** | Thinking / working (shows the tool and command) / waiting for your approval (calls you, flashes, vibrates) / earns EXP and levels up when a task finishes / gets hurt when a command fails. Keeps several sessions apart. Over Wi-Fi, with USB as the fallback |
+| **Claude Code** | Thinking / working (shows the tool and command) / waiting for your approval (calls you, flashes, vibrates) / earns EXP and levels up when a task finishes / gets hurt when a command fails. When Claude starts subagents, that many little helper slimes pop out beside it and hop back when they finish. Keeps several sessions apart. Over Wi-Fi, with USB as the fallback |
 | **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". By default the transcript only goes to that local model, never to the cloud; any OpenAI-compatible cloud API also works |
 | **Memory and personality** | The computer side logs every event in the slime's journal; the last 7 days of your habits shape its personality (night owl, confident, worrier, workaholic, ...) and the tone of its comments; it writes a diary every day |
 | **Proactive companion** | With `slime_buddy.py` running, it speaks up when Claude has waited for your approval too long, commands keep failing, you work deep into the night or for hours on end, you finish a lot today, or you come back after a while |
@@ -134,6 +134,7 @@ cd firmware/slime/host
 make sheet       # out/sheet.png: every state side by side
 make test        # cc_track unit tests + pixel-exact check of the dual-core split rendering
 ./host_sim frame levelup 1.5 out/frame.bmp "叮叮叮！升到了 Lv 13！"
+./host_sim helpers 3 2 work out/helpers.bmp   # 3 helper slimes, 2 s after they were sent out
 ```
 
 **No board?** `make sim` runs the real firmware on your computer (poke, shake and press keys in a window; point the Claude Code hook at it with `SLIME_HOST=127.0.0.1:8080`), and `make simtest` is a scripted end-to-end test. To test only the hook, use `bridge/fake_device.py`. See [firmware/slime/host/README.md](firmware/slime/host/README.md).

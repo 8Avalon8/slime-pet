@@ -21,7 +21,8 @@ SETTINGS = os.path.expanduser("~/.claude/settings.json")
 # The hook is stdlib-only (3.9+).
 PYTHON = "/usr/bin/python3" if sys.platform == "darwin" else sys.executable
 TOOL_EVENTS = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"]
-OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure", "PreCompact", "SessionEnd"]
+OTHER_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "StopFailure", "PreCompact", "SessionEnd",
+                "SubagentStart", "SubagentStop"]
 
 
 def is_ours(group):

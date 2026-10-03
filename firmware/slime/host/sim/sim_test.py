@@ -166,6 +166,13 @@ def run():
     shot("09_done")
     expect("idle again", state_is("idle"), timeout=8)
 
+    # a camera that is plugged in and switched on but never starts: the slime says so, once
+    sim("camera_stuck 1")
+    expect("camera stuck -> the slime complains", lambda s: "摄像头" in s["msg"], timeout=10)
+    shot("09b_camera_stuck")
+    sim("camera_stuck 0")
+    expect("idle again", state_is("idle"), timeout=30)
+
     # the bridge's AI comment line
     http("/api/cmd", "say happy 测试通过，真棒！")
     expect("say -> comment on the dialog", lambda s: "测试通过" in s["msg"])

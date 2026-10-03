@@ -149,6 +149,7 @@ static void check_slot(ctx_t *c, esp_err_t attempt)
     s_st.slot_desc = ok ? (int)m.descriptor_state : -1;
     s_st.slot_owner = ok ? (int)m.owner_state : -1;
     s_st.slot_type = ok && m.descriptor_state == MOSAICO_MODULE_DESCRIPTOR_VALID ? (int)m.eeprom.board_type : -1;
+    s_st.plugged = s_st.slot_presence == (int)MOSAICO_MODULE_PRESENCE_PRESENT && s_st.slot_type == (int)MOSAICO_BOARD_TYPE_CAMERA;
     s_st.slot_err = ok ? m.last_error : ESP_FAIL;
     portEXIT_CRITICAL(&s_lock);
     if (attempt == ESP_OK || !ok) {

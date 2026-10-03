@@ -35,7 +35,7 @@ static const char *TAG = "vision";
 #define MIN_INTERNAL_FREE (20 * 1024) /* below this the LCD DMA starts failing: give the camera up */
 #define ALIGN 64
 
-#define HAND_PERIOD_MS 350  /* hand detection rate while no hand is up (~3 Hz) */
+#define HAND_PERIOD_MS 300  /* pause between hand detections while no hand is up (one takes 0.2-0.5 s here) */
 #define HAND_FAST_MS 150    /* ... and while one is */
 #define HAND_FAST_HOLD_MS 1500
 #define GESTURE_MIN_SCORE 0.6f /* the classifier's confidence in its best guess */
@@ -941,8 +941,11 @@ static void vision_task(void *arg)
             detect_faces(&c, &f);
             face_frame = true;
         } else if (c.hand && (int32_t)(now - next_hand) >= 0) {
-            next_hand = now + (now - c.last_hand_ms < HAND_FAST_HOLD_MS ? HAND_FAST_MS : HAND_PERIOD_MS);
+            if (s_preview != VISION_PV_OFF) render_preview(&c, &f); /* a detection takes several frames' time: show this one first */
             detect_hands(&c, &f, now);
+            /* counted from the end: detection is slow, and the preview and the wave detector need the frames in between */
+            const uint32_t done = (uint32_t)(esp_timer_get_time() / 1000);
+            next_hand = done + (done - c.last_hand_ms < HAND_FAST_HOLD_MS ? HAND_FAST_MS : HAND_PERIOD_MS);
             face_frame = true;
         } else {
             /* the thumbnail only has to show whether you are in frame: 5 fps spares the PSRAM bandwidth

@@ -45,6 +45,8 @@ typedef struct {
 
 void audio_start(void);
 void audio_configure(bool mic, uint8_t clap_sens, bool dance, bool sound, uint8_t volume);
+/* 0-100: the speaker volume while a spoken answer plays (audio_speak); `volume` above is for everything else. */
+void audio_set_speak_volume(uint8_t volume);
 /* Queued; SFX_BLIP is dropped when anything else is playing or queued. */
 void audio_play(sfx_t s);
 /* Background tune at a lower level; any effect cuts it short. Ignored while an effect plays. */

@@ -130,6 +130,7 @@ html[lang=en] .row label{flex-basis:10em}html[lang=en] .row output{flex-basis:4.
         <div class="checks"><label><input type="checkbox" data-k="quiet">夜间勿扰：到点后不出声、不亮灯、屏幕变暗</label></div>
         <div class="row"><label>勿扰开始</label><input type="range" min="0" max="23" data-k="night_start" data-unit="点"><output></output></div>
         <div class="row"><label>勿扰结束</label><input type="range" min="0" max="23" data-k="night_end" data-unit="点"><output></output></div>
+        <div class="row"><label>朗读音量</label><input type="range" min="0" max="100" step="5" data-k="speak_vol" data-unit="%"><output></output></div>
         <div class="row"><label>朗读音调</label><input type="range" min="80" max="150" step="5" data-k="speak_pitch" data-unit="%"><output></output></div>
         <div class="toggles">
           <label><input type="checkbox" data-k="sound">音效</label>
@@ -243,7 +244,7 @@ const EN_TEXT={'史莱姆面板':'Slime Panel','史莱姆':'Slime','连接中…
   '音色（如 冰糖、bella；音色设计模型填一句描述）':'Voice (e.g. bella, Mia; for a voice-design model, a one-line description)',
   '语音合成：小米 MiMo 填 https://api.xiaomimimo.com/v1，模型 mimo-v2.5-tts（音色 冰糖、茉莉、苏打、白桦），或 mimo-v2.5-tts-voicedesign（音色一栏写一句声音描述）；硅基流动填 https://api.siliconflow.cn/v1，默认 CosyVoice2，音色 bella、anna、claire、diana 等；其他 OpenAI 兼容的 /audio/speech 接口也行。':
     'Text to speech: Xiaomi MiMo is https://api.xiaomimimo.com/v1 with model mimo-v2.5-tts (voices Mia, Chloe, Milo, Dean, 冰糖, 茉莉) or mimo-v2.5-tts-voicedesign (describe the voice in the voice field); SiliconFlow is https://api.siliconflow.cn/v1, CosyVoice2 by default, voices bella, anna, claire, diana and more; any other OpenAI-compatible /audio/speech API works too.',
-  '朗读音调':'Voice pitch',
+  '朗读音调':'Voice pitch','朗读音量':'Voice volume',
   '把语音聊天的回答念出来（需要语音合成接口）':'Read voice-chat answers aloud (needs a text-to-speech API)',
   'AI 点评、主动陪伴和语音对话用的模型接口（OpenAI 兼容）。这些只是存在史莱姆里，电脑上的 slime_hook.py 和 slime_buddy.py 会来读；电脑上设置了 SLIME_LLM_URL 等环境变量时以环境变量为准。API Key 保存后不会再显示，在局域网里是明文传输的，和 Wi-Fi 密码一样只在信得过的网络里填。改了接口地址而没有重新填 Key，原来的 Key 会被清掉。':'The OpenAI-compatible model API used for AI comments, the buddy and voice chat. The slime only stores these; slime_hook.py and slime_buddy.py on the computer read them, and environment variables such as SLIME_LLM_URL on the computer take precedence. A saved API key is never shown again; it travels unencrypted on your network, so enter it only on a network you trust, like the Wi-Fi password. Changing an address without entering its key again clears the old key.',
   '网络名称（仅 2.4 GHz）':'Network name (2.4 GHz only)','密码':'Password','连接':'Connect',

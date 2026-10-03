@@ -30,6 +30,7 @@ Try it:
     python3 slime_brain.py stats [days]
     python3 slime_brain.py config      # the endpoints in use and where each value comes from
 """
+import base64
 import datetime as dt
 import json
 import os
@@ -37,6 +38,7 @@ import re
 import socket
 import sys
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -400,21 +402,38 @@ def comment(summary):
 # ---------------- speech to text ----------------
 
 
+_stt_chat = set()  # addresses that have no /audio/transcriptions: speech goes through /chat/completions there
+
+
 def transcribe(wav, language=None):
-    """WAV bytes -> text, through an OpenAI-compatible /audio/transcriptions endpoint."""
+    """WAV bytes -> text. Tries the OpenAI /audio/transcriptions endpoint; a service that does not
+    have it (404 / 405, e.g. Xiaomi MiMo ASR) gets the audio inside a /chat/completions message."""
     language = language or lang()
     cfg = settings()
-    boundary = uuid.uuid4().hex
-    parts = []
-    for k, v in (("model", cfg["stt_model"][0]), ("language", language), ("response_format", "json")):
-        parts.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (boundary, k, v)).encode())
-    parts.append(('--%s\r\nContent-Disposition: form-data; name="file"; filename="voice.wav"\r\n'
-                  "Content-Type: audio/wav\r\n\r\n" % boundary).encode() + wav + b"\r\n")
-    parts.append(("--%s--\r\n" % boundary).encode())
-    req = urllib.request.Request(cfg["stt_url"][0] + "/audio/transcriptions", data=b"".join(parts),
-                                 headers=_headers(cfg["stt_key"][0], "multipart/form-data; boundary=" + boundary))
+    url, key, model = cfg["stt_url"][0], cfg["stt_key"][0], cfg["stt_model"][0]
+    if url not in _stt_chat:
+        boundary = uuid.uuid4().hex
+        parts = []
+        for k, v in (("model", model), ("language", language), ("response_format", "json")):
+            parts.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (boundary, k, v)).encode())
+        parts.append(('--%s\r\nContent-Disposition: form-data; name="file"; filename="voice.wav"\r\n'
+                      "Content-Type: audio/wav\r\n\r\n" % boundary).encode() + wav + b"\r\n")
+        parts.append(("--%s--\r\n" % boundary).encode())
+        req = urllib.request.Request(url + "/audio/transcriptions", data=b"".join(parts),
+                                     headers=_headers(key, "multipart/form-data; boundary=" + boundary))
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return str(json.load(r).get("text", "")).strip()
+        except urllib.error.HTTPError as e:
+            if e.code not in (404, 405):
+                raise
+            _stt_chat.add(url)
+    audio = {"data": "data:audio/wav;base64," + base64.b64encode(wav).decode(), "format": "wav"}
+    body = {"model": model, "messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": audio}]}],
+            "asr_options": {"language": language}}
+    req = urllib.request.Request(url + "/chat/completions", data=json.dumps(body).encode(), headers=_headers(key))
     with urllib.request.urlopen(req, timeout=60) as r:
-        return str(json.load(r).get("text", "")).strip()
+        return str(json.load(r)["choices"][0]["message"].get("content") or "").strip()
 
 
 # ---------------- the device, over Wi-Fi ----------------

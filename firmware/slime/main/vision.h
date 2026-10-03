@@ -18,6 +18,7 @@ extern "C" {
 typedef struct {
     bool enabled;
     bool ok;          /* camera streaming and model loaded */
+    bool plugged;     /* a camera module sits in the left slot, whether or not it works */
     int tries;        /* open attempts so far */
     esp_err_t err;    /* last failure (NOT_FOUND/TIMEOUT = no camera plugged in) */
     bool face;        /* a face in the latest analysed frame */

@@ -9,7 +9,7 @@ all: host_sim cc_test
 MAIN := ../main
 SIM_SRCS := sim/sim_main.c sim/sim_idf.c sim/sim_drivers.c $(MAIN)/main.c $(MAIN)/config.c $(MAIN)/inbox.c \
 	$(MAIN)/cc_track.c $(MAIN)/settings_ui.c $(MAIN)/web.c $(filter-out host_main.c,$(SRCS))
-SIM_CFLAGS := -O2 -g -std=gnu11 -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE -pthread -Wall -Wno-unused-parameter \
+SIM_CFLAGS := -O2 -g -std=gnu11 -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE -DCAM_STUCK_S=3 -pthread -Wall -Wno-unused-parameter \
 	-Wno-missing-field-initializers -Wno-unused-function -Wno-format-truncation -Wno-unknown-warning-option \
 	-Isim -Isim/idf -I$(MAIN) -I$(CORE)/include
 SIM_LIBS := -lm -pthread

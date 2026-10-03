@@ -227,7 +227,9 @@ static touch_t poll_touch(void)
 {
     static bool was_down;
     touch_t t = {0};
-    if (!s_touch) return t;
+    /* While an update is being written the I2C reads time out (seen on the serial log a few
+     * seconds into every update), and each one costs its full timeout. */
+    if (!s_touch || ota_progress() >= 0) return t;
     uint16_t x[1], y[1];
     uint8_t cnt = 0;
     esp_lcd_touch_read_data(s_touch);
@@ -528,7 +530,9 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
 static void poll_battery(brain_t *b, sl_anim_t *a, double now)
 {
     static double next;
-    if (now < next) return;
+    /* Not during an update: the gauge's fifteen reads would each time out on the stalled I2C bus,
+     * about 5 s in all, and the task watchdog would reset the device in the middle of the write. */
+    if (now < next || ota_progress() >= 0) return;
     next = now + 5;
     bsp_battery_status_t st;
     if (bsp_battery_read(&st) != ESP_OK) return;

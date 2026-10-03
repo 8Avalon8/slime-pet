@@ -252,7 +252,9 @@ def speech():
     talk() gets a line's voice from a text-to-speech service (a stand-in on localhost) to the pet."""
     import http.server as hs
     import threading
-    http("/api/config", json.dumps({"speak": True}))
+    # quiet hours mute speech, and the simulator follows the real clock: switch them off for this test
+    http("/api/config", json.dumps({"speak": True, "night_start": 0, "night_end": 0}))
+    time.sleep(1.5)
     got = json.loads(http("/api/speak", bytes(2 * 16000)))  # 1 s of silence
     expect("speech: playing", lambda s: s["mic"].get("speaking"))
     expect("speech: done after its length", lambda s: not s["mic"].get("speaking"), timeout=3)

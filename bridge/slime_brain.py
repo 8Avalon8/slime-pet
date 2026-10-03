@@ -284,16 +284,21 @@ def speak(system, user, max_chars=LINE_MAX, max_tokens=120):
                    "plain ASCII only, at most %d characters." % max_chars)
     ok = set(range(0x20, 0x7F)) if en else drawable()
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    mood, text = "neutral", ""
-    for attempt in range(2):
+    mood, text, fewest = "neutral", "", None
+    for attempt in range(3):
         out = chat(messages, max_tokens=max_tokens)
         if out is None:
-            return None
-        mood, text = _parse(out, max_chars, en)
-        bad = [ch for ch in text if ord(ch) not in ok]
+            if fewest is None:
+                return None
+            break
+        m, t = _parse(out, max_chars, en)
+        bad = [ch for ch in t if ord(ch) not in ok]
+        if fewest is None or len(bad) < fewest:
+            mood, text, fewest = m, t, len(bad)
         if not bad:
             break
-        # the pet only has the common characters: ask once more, then drop what it cannot draw
+        # the pet only has the common characters: ask again, then keep the try that loses the
+        # fewest (a sentence with characters dropped out of it reads as nonsense)
         retry = "Say it another way, plain ASCII only, without: " if en else "换一种说法，不要用这些字："
         messages += [{"role": "assistant", "content": out}, {"role": "user", "content": retry + "".join(bad)}]
     text = "".join(ch for ch in text if ord(ch) in ok).strip()

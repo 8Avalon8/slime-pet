@@ -360,6 +360,14 @@ def _text_of(content):
     return ""
 
 
+def plain_prompt(s):
+    """What the user actually typed: harness reminders and routing tags around it are dropped,
+    so the 300 characters the model gets are not spent on markup."""
+    s = re.sub(r"<system-reminder\b.*?</system-reminder>", " ", s, flags=re.S)
+    s = re.sub(r"<[^<>]+>", " ", s)
+    return " ".join(s.split())
+
+
 def turn_summary(path):
     """The last turn of a Claude Code transcript (JSONL), condensed for the model."""
     entries = []
@@ -378,7 +386,7 @@ def turn_summary(path):
         content = e.get("message", {}).get("content")
         if e.get("type") == "user":
             if not prompt:
-                prompt = _text_of(content).strip()
+                prompt = plain_prompt(_text_of(content))
             for b in content if isinstance(content, list) else []:
                 if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("is_error"):
                     failures += 1

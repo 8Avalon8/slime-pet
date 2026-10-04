@@ -22,6 +22,7 @@
 | **AI 点评** | Claude 每做完一轮工作，用你电脑上的本地模型（LM Studio）以史莱姆的口吻点评一句，比如"测试全过了，真厉害！"。默认只发给本机的模型，不上传云端；也可以接任意 OpenAI 兼容的云端 API |
 | **记忆与性格** | 电脑端把每个事件记进史莱姆的日记本；按最近 7 天的习惯养成性格（夜猫子、自信、爱操心、劳模……），点评的语气跟着变；每天自动写一篇史莱姆日记 |
 | **主动陪伴** | 电脑上运行 `slime_buddy.py` 后，它会在 Claude 等你批准太久、命令连续失败、深夜还在干活、连续工作几小时、今天完成很多任务、你离开后回来时主动说一句 |
+| **等你时说一声** | `slime_buddy.py` 运行时，Claude 要你批准或回答问题（20 秒后）、做完一轮等你下一句（30 秒后），史莱姆会念一句“Claude 做完啦，等你看看”。每次等待只说一次；开着摄像头时你不在座位它先憋着，回来再说；夜间勿扰时做完的不提醒，要批准的只显示不出声 |
 | **语音对话** | 喊一声"小龙小龙"，或者长按 AI 键，然后说话；电脑把录音转成文字，史莱姆结合记忆回答你，比如"Claude 刚才在干嘛？"。唤醒词在设备上识别，平时的声音不出设备 |
 | **触摸与按键** | 点一下戳它，长按 1 秒打开设置菜单；AI 键单击静音、长按说话（关掉语音时长按看玩法说明）；BOOT 键单击开始/结束专注、长按打开设置；交互模块左右键调音量 |
 | **动作感应**（板载 IMU） | 歪过来会滑，使劲摇会晕，扣过来放就睡觉 |
@@ -128,7 +129,7 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 
 也可以不按键：喊"小龙小龙"，它回一句"我在！你说～"后直接说话，停顿一秒左右自动结束；唤醒后 5 秒没人说话就算了。唤醒词由设备自己识别（乐鑫 esp-sr 的 WakeNet，模型打包在固件里），只有唤醒之后的那一句才会发给电脑。设置里的"喊小龙小龙唤醒"可以关掉。想换唤醒词：在 `sdkconfig.defaults` 里把 `CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS` 换成 esp-sr 提供的其他现成模型（`idf.py menuconfig` 的 ESP Speech Recognition 里有列表），重新编译；自定义的词要找乐鑫训练。
 
-**把回答念出来**（可选）：语音对话的回答可以由史莱姆自己念出来，嘴巴跟着声音动。在网页面板“AI 设置”里填“语音合成 Key”就行：只填 Key 时默认用[小米 MiMo](https://platform.xiaomimimo.com/)（目前限时免费）的 `mimo-v2.5-tts`、音色“冰糖”；也可以填硅基流动（`https://api.siliconflow.cn/v1`，CosyVoice2）或任何 OpenAI 兼容的 `/audio/speech` 接口。什么都不填时会试着用语音转文字的接口。MiMo 的音色可选冰糖、茉莉、苏打、白桦；模型换成 `mimo-v2.5-tts-voicedesign` 时，“音色”一栏写一句声音描述（比如“奶声奶气的小史莱姆，语速轻快”）就能捏一个专属声音。合成在电脑上做，设备只播放（16 kHz，最长 20 秒一句）。面板里的“朗读音调”把声音整体调高或调低（像磁带快放），设备设置里的“朗读回答”可以关掉，夜间勿扰时不出声。环境变量 `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` 优先；`python3 bridge/slime_tts.py "你好呀"` 直接让它说一句，`python3 bridge/slime_tts.py config` 看当前配置。
+**把回答念出来**（可选）：语音对话的回答可以由史莱姆自己念出来，嘴巴跟着声音动。在网页面板“AI 设置”里填“语音合成 Key”就行：只填 Key 时默认用[小米 MiMo](https://platform.xiaomimimo.com/)（目前限时免费）的 `mimo-v2.5-tts`、音色“冰糖”；也可以填硅基流动（`https://api.siliconflow.cn/v1`，CosyVoice2）或任何 OpenAI 兼容的 `/audio/speech` 接口。什么都不填时会试着用语音转文字的接口。MiMo 的音色可选冰糖、茉莉、苏打、白桦；模型换成 `mimo-v2.5-tts-voicedesign` 时，“音色”一栏写一句声音描述（比如“奶声奶气的小史莱姆，语速轻快”）就能捏一个专属声音。合成在电脑上做，设备只播放（16 kHz，最长 20 秒一句）。面板里的“朗读音调”把声音整体调高或调低（像磁带快放），设备设置里的“朗读回答”可以关掉，夜间勿扰时不出声。Claude 等你时的提醒也用这个声音（没配语音合成就只显示），延迟可用 `SLIME_NUDGE_ASK_S` / `SLIME_NUDGE_DONE_S` 调（秒）。环境变量 `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` 优先；`python3 bridge/slime_tts.py "你好呀"` 直接让它说一句，`python3 bridge/slime_tts.py config` 看当前配置。
 
 ## 仓库结构
 

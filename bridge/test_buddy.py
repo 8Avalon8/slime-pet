@@ -179,5 +179,50 @@ class Tools(unittest.TestCase):
             self.assertTrue(set(f["parameters"]["required"]) <= set(f["parameters"]["properties"]), f["name"])
 
 
+
+class Nudges(unittest.TestCase):
+    """Claude waits for you: one spoken line per wait, after a delay, held while you are away."""
+
+    def ev(self, t, ev, sid="aaaa0001"):
+        return {"t": NOW + t, "sid": sid, "ev": ev, "d": ""}
+
+    def test_waits(self):
+        evs = [self.ev(0, "prompt"), self.ev(5, "tool"), self.ev(9, "ask"), self.ev(10, "ask"),
+               self.ev(0, "prompt", "bbbb0002"), self.ev(20, "stop", "bbbb0002"),
+               self.ev(3, "stop", "cccc0003"), self.ev(4, "prompt", "cccc0003")]
+        self.assertEqual(buddy.waiting_on_you(evs), {"aaaa0001": ("ask", NOW + 9), "bbbb0002": ("stop", NOW + 20)})
+        self.assertEqual(buddy.waiting_on_you(evs, since=NOW + 15), {"bbbb0002": ("stop", NOW + 20)})
+
+    def test_once_per_wait_after_delay(self):
+        n = buddy.Nudger(NOW - 100)
+        evs = [self.ev(0, "prompt"), self.ev(10, "stop")]
+        self.assertIsNone(n.due(evs, NOW + 30))   # you may still be looking
+        self.assertEqual(n.due(evs, NOW + 41)[0], "stop")
+        self.assertIsNone(n.due(evs, NOW + 60))   # said once
+        evs += [self.ev(70, "prompt"), self.ev(80, "ask")]
+        self.assertIsNone(n.due(evs, NOW + 90))
+        kind, text = n.due(evs, NOW + 101)
+        self.assertEqual(kind, "ask")
+        self.assertIn(text, buddy.NUDGE_LINES["ask"])
+
+    def test_held_while_away_then_welcome(self):
+        n = buddy.Nudger(NOW - 100)
+        evs = [self.ev(0, "stop")]
+        self.assertIsNone(n.due(evs, NOW + 40, present=False))
+        self.assertIsNone(n.due(evs, NOW + 300, present=False))
+        self.assertEqual(n.due(evs, NOW + 600), ("stop", buddy.NUDGE_LINES["back"][0]))
+
+    def test_several_sessions_one_line(self):
+        n = buddy.Nudger(NOW - 100)
+        evs = [self.ev(0, "stop"), self.ev(1, "ask", "bbbb0002")]
+        self.assertEqual(n.due(evs, NOW + 40), ("ask", "2 个 Claude 都在等你"))
+
+    def test_night_and_old_waits(self):
+        n = buddy.Nudger(NOW)
+        self.assertIsNone(n.due([self.ev(-50, "stop")], NOW + 10))  # from before the buddy started
+        self.assertIsNone(n.due([self.ev(10, "stop")], NOW + 60, night=True))
+        self.assertIsNone(n.due([self.ev(10, "stop")], NOW + 61))  # dropped, not saved for the morning
+        self.assertEqual(n.due([self.ev(100, "ask")], NOW + 130, night=True)[0], "ask")
+
 if __name__ == "__main__":
     unittest.main()

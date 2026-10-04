@@ -3,6 +3,10 @@
 
 Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
 
+  * Claude waits for you: when a session asks for a permission or a question, or finishes a
+    turn and waits for your next message, the slime says so out loud (after SLIME_NUDGE_ASK_S /
+    SLIME_NUDGE_DONE_S seconds, 20 / 30 by default), once per wait; with the camera on it holds
+    the line while you are away and says it when you are back.
   * Proactive lines: polls the journal (slime_brain.py) and the device status, and speaks up
     when Claude has waited for your approval too long, commands keep failing, you are still
     working deep in the night or for hours on end, a big day passes a milestone, or (camera)
@@ -267,6 +271,90 @@ class Rules:
         return None
 
 
+# ---------------- Claude waits for you: say so out loud ----------------
+
+NUDGE_ASK_S = float(os.environ.get("SLIME_NUDGE_ASK_S", 20))    # a permission or question: after this long
+NUDGE_DONE_S = float(os.environ.get("SLIME_NUDGE_DONE_S", 30))  # a finished turn: after this long
+NUDGE_LINES = {
+    "ask": ["Claude 等你点头呢", "Claude 需要你确认一下", "Claude 在等你回话"],
+    "stop": ["Claude 做完啦，等你看看", "Claude 那边好了，轮到你啦", "Claude 停下来等你了"],
+    "many": ["%d 个 Claude 都在等你"],
+    "back": ["你回来啦，Claude 在等你"],
+}
+NUDGE_LINES_EN = {
+    "ask": ["Claude needs your OK", "Claude has a question for you"],
+    "stop": ["Claude is done, your turn", "Claude finished, take a look"],
+    "many": ["%d Claudes are waiting for you"],
+    "back": ["Welcome back, Claude is waiting"],
+}
+
+
+def waiting_on_you(events, since=0):
+    """sid -> (kind, start) for Claude sessions whose latest state leaves them waiting on you:
+    "ask" (a permission or a question) or "stop" (the turn is done, your move). start is when
+    that wait began; several ask events in a row (PermissionRequest, then its Notification) are
+    one wait."""
+    out = {}
+    for e in events:
+        sid, ev = e.get("sid"), e.get("ev")
+        if not sid or ev not in STATE_WORDS:
+            continue
+        if ev in ("ask", "stop"):
+            if out.get(sid, (None,))[0] != ev:
+                out[sid] = (ev, e["t"])
+        else:
+            out.pop(sid, None)
+    return {sid: w for sid, w in out.items() if w[1] >= since}
+
+
+class Nudger:
+    """One spoken line per wait, after a short delay (so it stays quiet while you are right there
+    and answer at once). With the camera on, it holds the line while you are away and says it when
+    you come back. Quiet hours: a finished turn is not worth waking anyone; a question is shown,
+    not read aloud."""
+
+    def __init__(self, start):
+        self.start = start  # waits from before the buddy started are not ours to announce
+        self.done = set()   # (sid, kind, start) already said
+
+    def due(self, events, now, present=True, night=False):
+        """(kind, text) to say now, or None."""
+        fresh = []
+        for sid, (kind, t) in waiting_on_you(events, self.start).items():
+            key = (sid, kind, t)
+            if key in self.done or now - t > 3600:
+                continue
+            if night and kind == "stop":
+                self.done.add(key)
+                continue
+            if now - t >= (NUDGE_ASK_S if kind == "ask" else NUDGE_DONE_S):
+                fresh.append((key, now - t))
+        if not fresh or not present:
+            return None
+        self.done.update(key for key, _ in fresh)
+        lines = NUDGE_LINES_EN if brain.lang() == "en" else NUDGE_LINES
+        pick = lambda k: lines[k][int(now) % len(lines[k])]  # noqa: E731
+        kind = "ask" if any(k[1] == "ask" for k, _ in fresh) else "stop"
+        if len(fresh) > 1:
+            return kind, pick("many") % len(fresh)
+        if fresh[0][1] > 120 + (NUDGE_ASK_S if kind == "ask" else NUDGE_DONE_S):
+            return kind, pick("back")  # it waited for you to come back
+        return kind, pick(kind)
+
+
+def nudge(kind, text):
+    """Read the line aloud (when reading aloud is on) and show it: a question goes through the
+    pet's "remind" path (it buzzes and keeps the waiting face), a finished turn as a short line."""
+    clips = speech("worried" if kind == "ask" else "happy", [text])
+    if clips:
+        try:
+            tts.play(clips[0].result(timeout=TTS_WAIT_S))
+        except Exception as e:
+            log("nudge: no voice this time (%s)" % (str(e) or type(e).__name__))
+    send_line(("say remind %s\n" if kind == "ask" else "talk happy %s\n") % text)
+    brain.journal_append("say", text)
+
+
 def proactive_line(rule, situation):
     try:
         events, ctx = context(st=last_status)
@@ -529,8 +617,8 @@ def run():
     log("slime buddy: memory %s" % brain.HOME)
     for line in brain.describe_settings() + tts.describe_settings():
         log("  " + line)
-    rules, st, voice_seen = Rules(), None, None
-    next_rules, next_diary, last_line, offline_logged = 0, 0, 0, False
+    rules, nudger, st, voice_seen = Rules(), Nudger(time.time()), None, None
+    next_rules, next_nudge, next_diary, last_line, offline_logged = 0, 0, 0, 0, False
     while True:
         now = time.time()
         try:
@@ -554,6 +642,17 @@ def run():
                 log("voice: gave up on this one:", e)
             last_line = time.time()
         away = rules.observe(st, now)
+        if st and now >= next_nudge:
+            next_nudge = now + 3
+            hit = nudger.due(brain.journal_read(2, now), now, present=rules.away_since is None,
+                             night=bool(st.get("night")))
+            if hit:
+                try:
+                    nudge(*hit)
+                    last_line = time.time()
+                    log("nudge (%s): %s" % hit)
+                except Exception as e:
+                    log("could not nudge:", e)
         if now >= next_rules or away:
             next_rules = now + RULES_S
             try:

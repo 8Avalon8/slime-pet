@@ -11,6 +11,9 @@ Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
     when Claude has waited for your approval too long, commands keep failing, you are still
     working deep in the night or for hours on end, a big day passes a milestone, or (camera)
     you come back after a while. Quiet hours, the focus timer and the demo keep it silent.
+  * Picks its moments (slime_rhythm.py learns your usual hours): hello the first time you show
+    up in a day, a gentle word when you are over an hour past your usual stop, and lines that
+    can wait (milestones, take a break) wait until no Claude session is busy.
   * Reminders the slime was asked to set (slime_agent.py) are said when due.
   * Diary: after midnight it writes yesterday's diary to bridge/.slime/diary/YYYY-MM-DD.md.
   * Voice chat: hold the AI key on the pet and speak; the pet records, this process fetches the
@@ -38,6 +41,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slime_agent as agent  # noqa: E402
 import slime_brain as brain  # noqa: E402
+import slime_rhythm as rhythm  # noqa: E402
 import slime_tts as tts  # noqa: E402
 
 POLL_S = 1.5              # device status (voice needs to feel responsive)
@@ -54,6 +58,8 @@ FALLBACK = {  # used when the model is unreachable
     "marathon": ("worried", "干了好久了，起来走走吧"),
     "milestone": ("proud", "今天好厉害，继续加油！"),
     "welcome": ("happy", "你回来啦！"),
+    "hello": ("happy", "你来啦，今天也一起加油"),
+    "late": ("worried", "比平时晚了，别熬太久哦"),
 }
 FALLBACK_EN = {
     "wait": ("worried", "Claude is still waiting for your OK"),
@@ -62,6 +68,8 @@ FALLBACK_EN = {
     "marathon": ("worried", "Long session! Go stretch a bit"),
     "milestone": ("proud", "Great work today, keep it up!"),
     "welcome": ("happy", "You're back!"),
+    "hello": ("happy", "Hi! Let's have a good day"),
+    "late": ("worried", "Later than usual, don't stay up"),
 }
 
 
@@ -193,6 +201,9 @@ def context(now=None, st=None, question=""):
         lines.append("今天用得最多的工具：" + "、".join("%s×%d" % kv for kv in s["top"]))
     lines += sessions(week, now)
     lines += memories(week, now)
+    usual = rhythm.load(now).describe()
+    if usual:
+        lines.append("主人的作息（最近几周学到的）：" + "；".join(usual) + "。")
     known = agent.facts()
     if known:
         lines.append("主人让你记住的事：" + "；".join(f["d"] for f in known[-20:]))
@@ -207,6 +218,13 @@ class Rules:
         self.fired = {}          # key -> time
         self.face_seen = None    # last time a face was in view (camera working)
         self.away_since = None
+        self.rhythm, self.rhythm_at = None, 0
+
+    def learned(self, now):
+        """The owner's usual hours, relearned every 10 minutes."""
+        if self.rhythm is None or now - self.rhythm_at > 600:
+            self.rhythm, self.rhythm_at = rhythm.load(now), now
+        return self.rhythm
 
     def cooled(self, key, sec, now):
         return now - self.fired.get(key, 0) > sec
@@ -245,8 +263,26 @@ class Rules:
         night_key = "night:" + brain._day(now - 6 * 3600)
         if hour < 5 and recent and night_key not in self.fired:
             return (night_key, "night", "现在是凌晨 %d 点，主人还在和 Claude 干活。劝主人休息。" % hour)
+        learned = self.learned(now)
+        end = learned.end_today(now)
+        owner_now = any(now - t < 600 for t in rhythm.owner_times(week))
+        if (end and hour >= 20 and now - end >= 3600 and (learned.at(now) or 0) < 0.1 and owner_now
+                and night_key not in self.fired):
+            return (night_key, "late", "主人平时%s一般 %s 就收工了，现在 %s 还在和 Claude 干活。轻轻提醒主人别太晚。"
+                    % ("周末" if rhythm.kind(now) else "工作日", time.strftime("%H:%M", time.localtime(end)),
+                       time.strftime("%H:%M", time.localtime(now))))
         if st and st.get("night"):
             return None  # quiet hours: only the reminders above (the pet stays muted anyway)
+        hello_key = "hello:" + brain._day(now)
+        first = rhythm.first_today(week, now)
+        if first and now - first < 600 and hour >= 5 and hello_key not in self.fired:
+            usual = learned.usual(rhythm.kind(now))
+            early = usual and rhythm.slot(first) < usual[0] - 4
+            return (hello_key, "hello", "主人今天第一次来到电脑前，现在是%s%s。和主人打个招呼。"
+                    % (clock_text(now), "，比平时早不少" if early else ""))
+        # in the middle of something (a Claude session busy in the last 5 minutes): the lines below
+        # can wait for a pause, they come up again on the next check
+        busy = any(e["ev"] in ("prompt", "tool", "tool_ok", "compact") and now - e["t"] < 300 for e in last.values())
         fails = [e for e in recent if e.get("ev") == "tool_fail"]
         if len(fails) >= 3 and self.cooled("fails", 1200, now):
             return ("fails", "fails", "最近 10 分钟里命令失败了 %d 次，最近一次：%s。鼓励主人。"
@@ -258,12 +294,12 @@ class Rules:
                 if start - t > 1200:
                     break
                 start = t
-            if now - start >= 7200 and self.cooled("marathon", 5400, now):
+            if now - start >= 7200 and not busy and self.cooled("marathon", 5400, now):
                 return ("marathon", "marathon", "主人已经连续工作 %.1f 小时了，中间没有超过 20 分钟的休息。劝主人起来活动。"
                         % ((now - start) / 3600))
         tasks = sum(1 for e in week if e.get("ev") == "stop" and brain._day(e["t"]) == brain._day(now))
-        if tasks and tasks % 10 == 0:
-            key = "milestone:%s:%d" % (brain._day(now), tasks)
+        if tasks >= 10 and not busy:
+            key = "milestone:%s:%d" % (brain._day(now), tasks // 10 * 10)
             if key not in self.fired:
                 return (key, "milestone", "今天已经完成了 %d 轮任务！为主人庆祝。" % tasks)
         if away and self.cooled("welcome", 1800, now):
@@ -667,6 +703,8 @@ def run():
                 try:
                     say("remind" if rule == "wait" else mood, text)
                     rules.fired[key] = now
+                    if rule == "hello":
+                        rules.fired["welcome"] = now  # one greeting is enough
                     last_line = time.time()
                     log("said (%s): %s" % (rule, text))
                 except Exception as e:
@@ -727,6 +765,7 @@ def main():
         except Exception:
             st = {}
         print(Rules().check(st, time.time()))
+        print("\n".join(rhythm.load().describe()) or "作息还在学")
         print(context(st=st)[1])
     else:
         sys.exit(__doc__)

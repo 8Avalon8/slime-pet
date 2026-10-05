@@ -31,6 +31,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
 | **Everyday** | Chinese / English UI, clock and time-of-day greetings, a background that follows the time of day (dawn / day / dusk / night), quiet hours, a focus timer, sitting reminders and a help page |
+| **Home Assistant** | Set `SLIME_MQTT_URL` and the slime shows up in Home Assistant over MQTT: presence (PIR), sees you (camera), ambient light, battery, Claude's state and "Claude is waiting for you" work as automation triggers; Home Assistant can make it talk, start focus, set volume and brightness, and switch music and quiet hours |
 | **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, the camera picture |
 | **Wireless updates** | Two-slot OTA; a new image must run for 30 s before it confirms itself, and a crash before that rolls back to the old one |
 
@@ -132,6 +133,17 @@ Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead
 
 **Answers read aloud** (optional): the slime can speak its voice-chat answers, its mouth moving with the voice. Enter a "text-to-speech key" under "AI settings" in the web panel: with only a key it uses [Xiaomi MiMo](https://platform.xiaomimimo.com/) (free for now), model `mimo-v2.5-tts`, voice 冰糖; SiliconFlow (`https://api.siliconflow.cn/v1`, CosyVoice2) or any OpenAI-compatible `/audio/speech` API works too. With nothing set it tries the speech-to-text service. MiMo voices: 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean; with model `mimo-v2.5-tts-voicedesign`, write a one-line description of the voice in the voice field to design your own. The computer synthesizes, the pet only plays it (16 kHz, up to 20 s a line). "Voice pitch" in the panel raises or lowers it (like a sped-up tape); "Read answers aloud" in the settings turns it off, and quiet hours keep it silent. The "Claude is waiting" lines use this voice too (shown only without one); `SLIME_NUDGE_ASK_S` / `SLIME_NUDGE_DONE_S` set their delays in seconds. The environment variables `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` win when set; `python3 bridge/slime_tts.py "hello"` says one line, `python3 bridge/slime_tts.py config` shows the settings.
 
+**Home Assistant** (optional): with an MQTT broker set, `slime_buddy.py` also brings the slime into Home Assistant (its MQTT integration discovers it, no YAML):
+
+```bash
+export SLIME_MQTT_URL=mqtt://user:password@homeassistant.local:1883   # mqtts:// for TLS
+python3 bridge/slime_buddy.py          # or, without the buddy, python3 bridge/slime_mqtt.py
+```
+
+Sensors: someone there (the Interaction module's PIR), sees you (camera), ambient light, battery, charging, Claude's state, Claude waiting for you, level, quiet hours now, focus minutes left. Controls: say something (`notify.send_message`; read aloud when text-to-speech is set up), start / stop focus, volume, screen brightness, background music, quiet hours. Without the module or the camera those sensors read unknown. For example: blink the living-room light when Claude waits for you, start focus when you leave the room, have the slime call you when dinner is ready.
+
+The entities read unavailable while the pet is offline. Several pets on one broker: tell them apart with `SLIME_MQTT_ID` (default `slime`, topics `slime/<id>/...`); `SLIME_MQTT_PREFIX` changes the discovery prefix (default `homeassistant`). For now the computer relays it, so with the computer off the pet is offline in Home Assistant.
+
 ## Repository layout
 
 | Path | Contents |
@@ -142,7 +154,7 @@ Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead
 | `firmware/slime/tools/` | USB flashing, wireless updates, glyph generation |
 | `firmware/slime/bootloader_components/` | Bootloader hook that holds the power on at once (otherwise the board cannot boot on battery) |
 | `firmware/slime/patches/` | A patch to the official BSP, applied automatically at build time |
-| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), speech `slime_tts.py`, Wi-Fi setup |
+| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), speech `slime_tts.py`, usual hours `slime_rhythm.py`, Home Assistant `slime_mqtt.py`, Wi-Fi setup |
 | `design/slime_preview.html` | Browser design draft: the source of the look, the states and the jelly physics parameters |
 
 ## Rendering and testing on your computer

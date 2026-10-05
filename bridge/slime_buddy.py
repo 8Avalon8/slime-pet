@@ -21,8 +21,6 @@ Runs next to the Claude Code hooks and talks to the pet over Wi-Fi:
     knows (date and weekday, its own status, today's work, what each Claude session is doing, the last
     few exchanges, yesterday's diary, the weather when asked), can call tools (slime_agent.py), and
     the pet shows the answer.
-  * Home Assistant (SLIME_MQTT_URL set): what the pet senses as entities, and commands back
-    (slime_mqtt.py), from the same poll of the pet.
 
 Usage:
     python3 slime_buddy.py                 # run (Ctrl-C to stop); -v logs every poll decision
@@ -43,7 +41,6 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import slime_agent as agent  # noqa: E402
 import slime_brain as brain  # noqa: E402
-import slime_mqtt as mqtt  # noqa: E402
 import slime_rhythm as rhythm  # noqa: E402
 import slime_tts as tts  # noqa: E402
 
@@ -657,9 +654,6 @@ def run():
     for line in brain.describe_settings() + tts.describe_settings():
         log("  " + line)
     rules, nudger, st, voice_seen = Rules(), Nudger(time.time()), None, None
-    home = mqtt.start(say=lambda text: talk("happy", text))
-    if home:
-        log("  Home Assistant: MQTT %s, topics slime/%s/..." % (home.client.where(), home.node))
     next_rules, next_nudge, next_diary, last_line, offline_logged = 0, 0, 0, 0, False
     while True:
         now = time.time()
@@ -673,8 +667,6 @@ def run():
                 log("device offline (%s); retrying" % e)
             offline_logged, st = True, None
         last_status = st
-        if home:
-            home.update(st, now)
         voice = (st or {}).get("voice") or {}
         if st and voice_seen is None:
             voice_seen = voice.get("seq", 0)  # recordings made before we started are not ours

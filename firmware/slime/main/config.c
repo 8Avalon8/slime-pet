@@ -74,23 +74,28 @@ static void sanitize(slime_cfg_t *c)
     c->speak_vol = clamp8(c->speak_vol, 0, 100);
 }
 
-/* ---- AI endpoints for the bridge: plain NVS strings next to the settings blob ---- */
+/* ---- AI endpoints for the bridge, and the MQTT broker: plain NVS strings next to the settings blob ---- */
 
+enum { F_TEXT, F_HTTP, F_MQTT, F_ID }; /* what a value has to look like */
 static const struct {
     const char *name, *key; /* JSON name, NVS key */
-    uint8_t max;
-    bool url, secret;
+    uint8_t max, form;
+    bool secret;
 } AI_FIELDS[AI_FIELD_COUNT] = {
-    [AI_LLM_URL] = {"llm_url", "ai_lurl", 128, true, false},
-    [AI_LLM_MODEL] = {"llm_model", "ai_lmodel", 64, false, false},
-    [AI_LLM_KEY] = {"llm_key", "ai_lkey", AI_VALUE_MAX, false, true},
-    [AI_STT_URL] = {"stt_url", "ai_surl", 128, true, false},
-    [AI_STT_MODEL] = {"stt_model", "ai_smodel", 64, false, false},
-    [AI_STT_KEY] = {"stt_key", "ai_skey", AI_VALUE_MAX, false, true},
-    [AI_TTS_URL] = {"tts_url", "ai_turl", 128, true, false},
-    [AI_TTS_MODEL] = {"tts_model", "ai_tmodel", 64, false, false},
-    [AI_TTS_KEY] = {"tts_key", "ai_tkey", AI_VALUE_MAX, false, true},
-    [AI_TTS_VOICE] = {"tts_voice", "ai_tvoice", AI_VALUE_MAX, false, false},
+    [AI_LLM_URL] = {"llm_url", "ai_lurl", 128, F_HTTP, false},
+    [AI_LLM_MODEL] = {"llm_model", "ai_lmodel", 64, F_TEXT, false},
+    [AI_LLM_KEY] = {"llm_key", "ai_lkey", AI_VALUE_MAX, F_TEXT, true},
+    [AI_STT_URL] = {"stt_url", "ai_surl", 128, F_HTTP, false},
+    [AI_STT_MODEL] = {"stt_model", "ai_smodel", 64, F_TEXT, false},
+    [AI_STT_KEY] = {"stt_key", "ai_skey", AI_VALUE_MAX, F_TEXT, true},
+    [AI_TTS_URL] = {"tts_url", "ai_turl", 128, F_HTTP, false},
+    [AI_TTS_MODEL] = {"tts_model", "ai_tmodel", 64, F_TEXT, false},
+    [AI_TTS_KEY] = {"tts_key", "ai_tkey", AI_VALUE_MAX, F_TEXT, true},
+    [AI_TTS_VOICE] = {"tts_voice", "ai_tvoice", AI_VALUE_MAX, F_TEXT, false},
+    [AI_MQTT_URL] = {"mqtt_url", "mq_url", 128, F_MQTT, false},
+    [AI_MQTT_USER] = {"mqtt_user", "mq_user", 64, F_TEXT, false},
+    [AI_MQTT_PASS] = {"mqtt_pass", "mq_pass", 128, F_TEXT, true},
+    [AI_MQTT_ID] = {"mqtt_id", "mq_id", 24, F_ID, false},
 };
 static char s_ai[AI_FIELD_COUNT][AI_VALUE_MAX + 1];
 
@@ -112,7 +117,12 @@ esp_err_t ai_set(ai_field_t f, const char *val)
     for (const char *p = val; *p; p++) {
         if ((unsigned char)*p < 0x20 || *p == 0x7f) return ESP_ERR_INVALID_ARG;
     }
-    if (AI_FIELDS[f].url && val[0] && strncmp(val, "http://", 7) && strncmp(val, "https://", 8)) return ESP_ERR_INVALID_ARG;
+    const int form = AI_FIELDS[f].form;
+    if (form == F_HTTP && val[0] && strncmp(val, "http://", 7) && strncmp(val, "https://", 8)) return ESP_ERR_INVALID_ARG;
+    /* the broker's user name and password have fields of their own: inside the address the
+     * password would be stored in the clear and shown again by the panel */
+    if (form == F_MQTT && val[0] && ((strncmp(val, "mqtt://", 7) && strncmp(val, "mqtts://", 8)) || strchr(val, '@'))) return ESP_ERR_INVALID_ARG;
+    if (form == F_ID && val[strspn(val, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")]) return ESP_ERR_INVALID_ARG;
     if (!strcmp(val, s_ai[f])) return ESP_OK;
     nvs_handle_t h;
     esp_err_t e = nvs_open("slime", NVS_READWRITE, &h);

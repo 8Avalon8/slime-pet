@@ -7,9 +7,9 @@ all: host_sim cc_test
 
 # ---- slime_sim: the real firmware (main/) on top of sim/, the stand-in for ESP-IDF and the board ----
 MAIN := ../main
-SIM_SRCS := sim/sim_main.c sim/sim_idf.c sim/sim_drivers.c $(MAIN)/main.c $(MAIN)/config.c $(MAIN)/inbox.c \
-	$(MAIN)/cc_track.c $(MAIN)/settings_ui.c $(MAIN)/web.c $(filter-out host_main.c,$(SRCS))
-SIM_CFLAGS := -O2 -g -std=gnu11 -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE -DCAM_STUCK_S=3 -DSLOT_SETTLE_S=2 -pthread -Wall -Wno-unused-parameter \
+SIM_SRCS := sim/sim_main.c sim/sim_idf.c sim/sim_drivers.c sim/sim_mqtt.c $(MAIN)/main.c $(MAIN)/config.c $(MAIN)/inbox.c \
+	$(MAIN)/cc_track.c $(MAIN)/settings_ui.c $(MAIN)/web.c $(MAIN)/ha_mqtt.c $(filter-out host_main.c,$(SRCS))
+SIM_CFLAGS := -O2 -g -std=gnu11 -D_DEFAULT_SOURCE -D_DARWIN_C_SOURCE -DCAM_STUCK_S=3 -DSLOT_SETTLE_S=2 -DHA_SLOW_S=3 -pthread -Wall -Wno-unused-parameter \
 	-Wno-missing-field-initializers -Wno-unused-function -Wno-format-truncation -Wno-unknown-warning-option \
 	-Isim -Isim/idf -I$(MAIN) -I$(CORE)/include
 SIM_LIBS := -lm -pthread
@@ -21,7 +21,9 @@ ifneq ($(SDL_LIBS),)
 SIM_CFLAGS += -DSIM_SDL $(shell pkg-config --cflags sdl2)
 SIM_LIBS += $(SDL_LIBS)
 endif
-# cJSON (web.c): the system's, else the copy inside ESP-IDF
+# cJSON (web.c): the system's, else the copy inside ESP-IDF (before 6.0), else the one the firmware
+# build downloaded (managed_components, there after any idf.py build)
+CJSON_MANAGED := ../managed_components/espressif__cjson/cJSON
 CJSON_LIBS := $(shell pkg-config --libs libcjson 2>/dev/null)
 ifneq ($(CJSON_LIBS),)
 SIM_CFLAGS += $(shell pkg-config --cflags libcjson)
@@ -29,11 +31,14 @@ SIM_LIBS += $(CJSON_LIBS)
 else ifneq ($(wildcard $(IDF_PATH)/components/json/cJSON/cJSON.c),)
 SIM_CFLAGS += -I$(IDF_PATH)/components/json/cJSON
 SIM_SRCS += $(IDF_PATH)/components/json/cJSON/cJSON.c
+else ifneq ($(wildcard $(CJSON_MANAGED)/cJSON.c),)
+SIM_CFLAGS += -I$(CJSON_MANAGED)
+SIM_SRCS += $(CJSON_MANAGED)/cJSON.c
 endif
 
 slime_sim: $(SIM_SRCS) sim/index_html.S $(MAIN)/web/index.html $(wildcard sim/*.h sim/idf/*.h sim/idf/*/*.h $(MAIN)/*.h $(CORE)/include/*.h)
-	@[ -n "$(CJSON_LIBS)$(wildcard $(IDF_PATH)/components/json/cJSON/cJSON.c)" ] || \
-		{ echo "slime_sim needs cJSON: brew install cjson / apt install libcjson-dev, or set IDF_PATH"; exit 1; }
+	@[ -n "$(CJSON_LIBS)$(wildcard $(IDF_PATH)/components/json/cJSON/cJSON.c $(CJSON_MANAGED)/cJSON.c)" ] || \
+		{ echo "slime_sim needs cJSON: brew install cjson / apt install libcjson-dev, or build the firmware once (idf.py build)"; exit 1; }
 	$(CC) $(SIM_CFLAGS) -DINDEX_HTML='"$(MAIN)/web/index.html"' -o $@ $(SIM_SRCS) sim/index_html.S $(SIM_LIBS)
 
 sim: slime_sim

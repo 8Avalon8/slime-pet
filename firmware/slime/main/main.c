@@ -46,6 +46,7 @@
 #include "inbox.h"
 #include "net.h"
 #include "ota.h"
+#include "ha_mqtt.h"
 #include "wake.h"
 #include "sensors.h"
 #include "settings_ui.h"
@@ -521,6 +522,20 @@ static void handle_line(brain_t *b, sl_anim_t *a, const char *line, inbox_src_t 
         else focus_stop(b, a, now);
         return;
     }
+    int val;
+    if (sscanf(line, "set %15s %d", name, &val) == 2) { /* Home Assistant (ha_mqtt.c): the few settings it can change */
+        slime_cfg_t c;
+        cfg_get(&c);
+        if (!strcmp(name, "volume")) {
+            c.volume = (uint8_t)(val < 0 ? 0 : val > 100 ? 100 : val);
+            c.sound = c.volume > 0;
+        } else if (!strcmp(name, "screen_bright")) c.screen_bright = (uint8_t)(val < 10 ? 10 : val > 100 ? 100 : val);
+        else if (!strcmp(name, "bgm")) c.bgm = val != 0;
+        else if (!strcmp(name, "quiet")) c.quiet = val != 0;
+        else return;
+        cfg_set(&c);
+        return;
+    }
     if (sscanf(line, "bgm %15s", name) == 1) {
         if (!strcmp(name, "stop")) audio_stop_bgm();
         else audio_play_bgm((bgm_t)(atoi(name) % BGM_COUNT));
@@ -902,7 +917,7 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              "\"size\":%.2f,\"ms\":%.0f,\"raw_x\":%.2f,\"raw_y\":%.2f,\"motion\":%.2f,\"mx\":%.2f,\"luma\":%.0f,"
              "\"kp\":%s,\"roll\":%.0f,\"yaw\":%.2f,\"pitch\":%.2f,\"sway\":%.2f,"
              "\"face_on\":%s,\"gesture_on\":%s,\"gesture_missing\":%s,\"hand\":%s,\"gesture\":%d,\"gscore\":%.2f,\"hand_ms\":%.0f,"
-             "\"slot\":{\"presence\":%d,\"desc\":%d,\"owner\":%d,\"type\":%d,\"err\":\"%s\",\"bus_resets\":%d}}}",
+             "\"slot\":{\"presence\":%d,\"desc\":%d,\"owner\":%d,\"type\":%d,\"err\":\"%s\",\"bus_resets\":%d}},\"mqtt\":\"%s\"}",
              ss.imu_ok ? "true" : "false", ss.ax, ss.ay, ss.az, ss.tilt, ss.face_down ? "true" : "false",
              ss.mod_ok ? "true" : "false", ss.motion ? "true" : "false", ss.light, au.ok && au.mic ? "true" : "false", au.db,
              au.floor, au.claps, au.speaking ? "true" : "false", net_state_name(ns.state), e2, ns.ip,
@@ -914,8 +929,13 @@ static void publish_status(const brain_t *b, const sl_anim_t *a, const char *msg
              vs.fsize, vs.infer_ms, vs.raw_x, vs.raw_y, vs.motion, vs.motion_x, vs.luma, vs.kp_ok ? "true" : "false",
              vs.roll * 57.3f, vs.yaw, vs.pitch, a->ext_sway, vs.face_on ? "true" : "false", vs.gesture_on ? "true" : "false", vs.gesture_missing ? "true" : "false",
              vs.hand ? "true" : "false", vs.gesture, vs.gesture_score, vs.hand_ms, vs.slot_presence, vs.slot_desc, vs.slot_owner, vs.slot_type,
-             esp_err_to_name(vs.slot_err), vs.bus_resets);
+             esp_err_to_name(vs.slot_err), vs.bus_resets, ha_status());
     web_publish_status(js);
+    ha_update(&(ha_state_t){.mod_ok = ss.mod_ok, .motion = ss.motion, .light = ss.light,
+                            .cam_ok = vs.enabled && vs.ok && vs.face_on, .face = vs.face,
+                            .bat_ok = b->bat_valid, .charging = b->charging, .soc = b->soc,
+                            .claude = (uint8_t)cs, .level = b->lv, .night = b->night,
+                            .focus_s = b->focus_end ? (int)(b->focus_end - now) : 0});
 }
 
 /* Wi-Fi state changes -> a notice on the dialog. */
@@ -1473,6 +1493,7 @@ void app_main(void)
     const esp_err_t ne = net_start();
     if (ne != ESP_OK) ESP_LOGW(TAG, "Wi-Fi unavailable: %s", esp_err_to_name(ne));
     else if (web_start() != ESP_OK) ESP_LOGW(TAG, "web panel unavailable");
+    if (ne == ESP_OK) ha_start(); /* Home Assistant over MQTT: nothing runs until a broker is set in the panel */
     progress_load(&s_b);
     cc_init(&s_b.cc);
     sl_render_init();

@@ -31,7 +31,7 @@
 | **声音** | 三声部芯片音乐合成器（MML 乐谱 + 滑音），原创开机曲、提示音和两首背景音乐 |
 | **交互模块**（可选） | 6 颗彩灯随状态变化，按键、人体感应、光线 |
 | **日常** | 中英文界面、时钟和按时段问候、随时间变化的背景（清晨 / 白天 / 黄昏 / 夜晚）、夜间勿扰、番茄钟、久坐提醒、玩法说明页 |
-| **Home Assistant** | 设置 `SLIME_MQTT_URL` 后，史莱姆通过 MQTT 自动出现在 Home Assistant 里：人体感应、摄像头看到你、环境光、电量、Claude 状态和“Claude 在等你”可以当自动化的触发条件；HA 也能让它说话、开始专注、调音量和亮度、开关背景音乐和夜间勿扰 |
+| **Home Assistant** | 在网页面板里填上 MQTT 服务器地址，史莱姆自己连上去（不需要电脑开着），自动出现在 Home Assistant 里：人体感应、摄像头看到你、环境光、电量、Claude 状态和“Claude 在等你”可以当自动化的触发条件；HA 也能让它说话、开始专注、调音量和亮度、开关背景音乐和夜间勿扰 |
 | **网页面板** | 浏览器打开 `http://slime.local/`：实时状态、全部设置、音乐试听、摄像头画面 |
 | **无线更新** | 双程序位 OTA，新固件跑满 30 秒才确认，崩溃会自动退回旧版 |
 
@@ -133,28 +133,31 @@ export SLIME_STT_MODEL=Systran/faster-whisper-small
 
 **把回答念出来**（可选）：语音对话的回答可以由史莱姆自己念出来，嘴巴跟着声音动。在网页面板“AI 设置”里填“语音合成 Key”就行：只填 Key 时默认用[小米 MiMo](https://platform.xiaomimimo.com/)（目前限时免费）的 `mimo-v2.5-tts`、音色“冰糖”；也可以填硅基流动（`https://api.siliconflow.cn/v1`，CosyVoice2）或任何 OpenAI 兼容的 `/audio/speech` 接口。什么都不填时会试着用语音转文字的接口。MiMo 的音色可选冰糖、茉莉、苏打、白桦；模型换成 `mimo-v2.5-tts-voicedesign` 时，“音色”一栏写一句声音描述（比如“奶声奶气的小史莱姆，语速轻快”）就能捏一个专属声音。合成在电脑上做，设备只播放（16 kHz，最长 20 秒一句）。面板里的“朗读音调”把声音整体调高或调低（像磁带快放），设备设置里的“朗读回答”可以关掉，夜间勿扰时不出声。Claude 等你时的提醒也用这个声音（没配语音合成就只显示），延迟可用 `SLIME_NUDGE_ASK_S` / `SLIME_NUDGE_DONE_S` 调（秒）。环境变量 `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` 优先；`python3 bridge/slime_tts.py "你好呀"` 直接让它说一句，`python3 bridge/slime_tts.py config` 看当前配置。
 
-**接入 Home Assistant**（可选）：设置 MQTT 服务器地址后，`slime_buddy.py` 会顺带把史莱姆接进 Home Assistant（HA 的 MQTT 集成会自动发现它，不用写 YAML）：
+**接入 Home Assistant**（可选）：史莱姆自己连 MQTT 服务器，不经过电脑。浏览器打开 `http://slime.local/`，在“AI 设置”里填：
 
-```bash
-export SLIME_MQTT_URL=mqtt://用户名:密码@homeassistant.local:1883   # TLS 用 mqtts://
-python3 bridge/slime_buddy.py          # 或者不跑 buddy，单独运行 python3 bridge/slime_mqtt.py
-```
+| 栏 | 填什么 |
+|---|---|
+| MQTT 地址 | `mqtt://homeassistant.local:1883`；加密连接用 `mqtts://`（服务器证书要由公共机构签发，自签证书目前连不上）。留空就是不接入 |
+| MQTT 用户名 / 密码 | 服务器不要求登录就留空。密码保存后不再显示；不要把用户名密码写进地址里（会被拒绝） |
+| 设备 ID | 留空是 `slime`。多只史莱姆共用一个服务器时用它区分，话题是 `slime/<id>/...` |
 
-传感器：有人（交互模块的人体感应）、看到你（摄像头）、环境光、电量、充电中、Claude 状态、Claude 在等你、等级、夜间勿扰中、专注剩余分钟。可控制：说话（`notify.send_message`，配了语音合成会念出来）、开始/结束专注、音量、屏幕亮度、背景音乐、夜间勿扰。没插模块或没开摄像头时，对应传感器显示“未知”。比如：Claude 等你时让客厅的灯闪一下，人离开房间就自动开始专注，晚饭好了让史莱姆喊你。
+保存后几秒内，Home Assistant 的 MQTT 集成会自动发现它，不用写 YAML。面板上“Home Assistant”一行显示连接状态。
 
-设备离线时实体显示不可用。多只史莱姆共用一个服务器时用 `SLIME_MQTT_ID` 区分（默认 `slime`，话题 `slime/<id>/...`）；`SLIME_MQTT_PREFIX` 改 HA 的发现前缀（默认 `homeassistant`）。目前由电脑端转发，电脑关着时 HA 里就是离线。
+传感器：有人（交互模块的人体感应）、看到你（摄像头）、环境光、电量、充电中、Claude 状态、Claude 在等你、等级、夜间勿扰中、专注剩余分钟。可控制：说话（`notify.send_message`，显示在屏幕上，不朗读）、开始/结束专注、音量、屏幕亮度、背景音乐、夜间勿扰。没插模块或没开摄像头时，对应传感器显示“未知”。比如：Claude 等你时让客厅的灯闪一下，人离开房间就自动开始专注，晚饭好了让史莱姆喊你。
+
+史莱姆断电或断网时，实体显示不可用（MQTT 遗嘱）。重要的变化（有人、看到你、Claude 状态、充电、专注、各个开关）立刻上报，环境光、电量和等级最多每 30 秒一次。Home Assistant 重启后会收到重新发送的发现配置。
 
 ## 仓库结构
 
 | 目录 | 内容 |
 |---|---|
 | `firmware/slime/components/slime_core/` | 纯 C 渲染核心，不依赖 ESP-IDF：光栅库 `sg`、状态机和果冻弹簧 `slime_anim`、渲染 `slime_render`、文字 `slime_text`、菜单 `slime_menu` |
-| `firmware/slime/main/` | 设备端：主循环与"大脑"（`main.c`）、Claude Code 会话跟踪 `cc_track`、传感器 `sensors`、音频与合成器 `audio`、乐谱 `tunes_original.h`、摄像头与人脸 `vision`、网络 `net`、网页面板 `web`、设置 `config`/`settings_ui`、无线更新 `ota`、崩溃记录 `bootlog` |
+| `firmware/slime/main/` | 设备端：主循环与"大脑"（`main.c`）、Claude Code 会话跟踪 `cc_track`、传感器 `sensors`、音频与合成器 `audio`、乐谱 `tunes_original.h`、摄像头与人脸 `vision`、网络 `net`、Home Assistant 接入 `ha_mqtt`、网页面板 `web`、设置 `config`/`settings_ui`、无线更新 `ota`、崩溃记录 `bootlog` |
 | `firmware/slime/host/` | 电脑端测试程序：用同一份渲染代码出图、测速、跑单元测试；固件模拟器 `slime_sim` |
 | `firmware/slime/tools/` | USB 烧录、无线更新、字形生成 |
 | `firmware/slime/bootloader_components/` | 引导程序钩子：上电立刻保持电源（否则电池供电开不了机） |
 | `firmware/slime/patches/` | 对官方 BSP 的补丁（构建时自动打上） |
-| `bridge/` | 电脑端：Claude Code 钩子 `slime_hook.py`、记忆与模型调用 `slime_brain.py`、常驻伙伴 `slime_buddy.py`（主动陪伴、日记、语音对话）、语音合成 `slime_tts.py`、作息学习 `slime_rhythm.py`、Home Assistant 接入 `slime_mqtt.py`、Wi-Fi 配置 |
+| `bridge/` | 电脑端：Claude Code 钩子 `slime_hook.py`、记忆与模型调用 `slime_brain.py`、常驻伙伴 `slime_buddy.py`（主动陪伴、日记、语音对话）、语音合成 `slime_tts.py`、作息学习 `slime_rhythm.py`、Wi-Fi 配置 |
 | `design/slime_preview.html` | 浏览器版设计稿：形象、状态、果冻物理参数的来源 |
 
 ## 在电脑上出图和测试

@@ -69,17 +69,22 @@ uint32_t cfg_gen(void);
 
 /* Where the computer side (bridge/slime_brain.py, slime_tts.py) finds its language model,
  * speech-to-text and text-to-speech services. The device only keeps these strings so that the
- * web panel is the one place to set them; it never calls the services itself. Stored as separate NVS strings, not in slime_cfg_t.
- * Only the web server task reads or writes them. */
+ * web panel is the one place to set them; it never calls the services itself (the MQTT broker at
+ * the end of the list is the exception). Stored as separate NVS strings, not in slime_cfg_t.
+ * Only the web server task reads or writes them (and ha_reload(), called from it). */
 typedef enum {
     AI_LLM_URL, AI_LLM_MODEL, AI_LLM_KEY,
     AI_STT_URL, AI_STT_MODEL, AI_STT_KEY,
     AI_TTS_URL, AI_TTS_MODEL, AI_TTS_KEY, AI_TTS_VOICE, /* voice: a preset name, or a description for a voice-design model */
+    /* Home Assistant's MQTT broker: the one service the device itself connects to (ha_mqtt.c). Empty address = off. */
+    AI_MQTT_URL, AI_MQTT_USER, AI_MQTT_PASS, AI_MQTT_ID, /* id: names the topics, slime/<id>/...; empty = "slime" */
     AI_FIELD_COUNT
 } ai_field_t;
 #define AI_VALUE_MAX 200 /* longest value of any field, without the NUL */
 const char *ai_field_name(ai_field_t f); /* JSON name, e.g. "llm_url" */
-bool ai_field_secret(ai_field_t f);      /* API keys: never sent back without the update token */
+bool ai_field_secret(ai_field_t f);      /* API keys and the MQTT password: never sent back without the update token */
 const char *ai_get(ai_field_t f);        /* "" when unset */
-/* Empty clears it. ESP_ERR_INVALID_ARG: too long, control characters, or a URL that is not http(s). */
+/* Empty clears it. ESP_ERR_INVALID_ARG: too long, control characters, a URL that is not http(s)
+ * (the broker: mqtt:// or mqtts://, and no user:password@ inside, which would be shown again), or
+ * an id with anything but letters, digits, _ and -. */
 esp_err_t ai_set(ai_field_t f, const char *val);

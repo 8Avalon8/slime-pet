@@ -22,7 +22,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **AI comments** | After each Claude turn, a local model on your computer (LM Studio) writes a one-line comment in the slime's voice, e.g. "All tests pass, nice!". By default the transcript only goes to that local model, never to the cloud; any OpenAI-compatible cloud API also works |
 | **Memory and personality** | The computer side logs every event in the slime's journal; the last 7 days of your habits shape its personality (night owl, confident, worrier, workaholic, ...) and the tone of its comments; it writes a diary every day |
 | **Tells you when Claude waits** | With `slime_buddy.py` running, the slime says "Claude is done, your turn" when Claude asks for a permission or a question (after 20 s) or finishes a turn and waits for you (after 30 s). Once per wait; with the camera on it holds the line while you are away and says it when you are back; in quiet hours finished turns stay silent and questions are only shown |
-| **Proactive companion** | With `slime_buddy.py` running, it speaks up when Claude has waited for your approval too long, commands keep failing, you work deep into the night or for hours on end, you finish a lot today, or you come back after a while |
+| **Proactive companion** | With `slime_buddy.py` running, it speaks up when Claude has waited for your approval too long, commands keep failing, you work deep into the night or for hours on end, you finish a lot today, or you come back after a while. It also learns your usual hours from the last few weeks: it says hello the first time you sit down each day, nudges you gently when you are over an hour past your usual stop, and holds lines that can wait (celebrations, take-a-break) until Claude reaches a pause |
 | **Voice chat** | Say the wake word ("Xiaolong Xiaolong") or hold the AI key, then speak; the computer turns the recording into text and the slime answers with what it remembers, e.g. "What was Claude just doing?" The wake word is recognized on the device: nothing leaves it until you have called it |
 | **Touch and buttons** | Tap to poke it, hold 1 s for the settings menu; AI key: click to mute, hold to talk (or for the help page with voice off); BOOT key: click to start/stop focus, hold for settings; the Interaction module's left/right keys set the volume |
 | **Motion** (on-board IMU) | Tilt it and it slides, shake it and it gets dizzy, lay it face down and it sleeps |
@@ -110,6 +110,7 @@ python3 bridge/slime_buddy.py              # Ctrl-C to stop; -v logs every decis
 python3 bridge/slime_buddy.py diary        # write today's diary now (it writes yesterday's after midnight anyway)
 python3 bridge/slime_buddy.py ask "今天干了啥"   # try a voice answer without the microphone
 python3 bridge/slime_brain.py traits       # the personality it has grown so far
+python3 bridge/slime_rhythm.py             # the usual hours it has learned
 ```
 
 It reads the same environment variables as the hook (`SLIME_LLM_URL` / `SLIME_LLM_MODEL` / `SLIME_LLM_KEY`), so set them in the buddy's terminal too. Diaries go to `bridge/.slime/diary/`.

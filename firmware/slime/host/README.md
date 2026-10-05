@@ -60,6 +60,14 @@ curl -o screen.bmp http://127.0.0.1:8080/sim/screen.bmp
 curl http://127.0.0.1:8080/sim/input       # 命令列表
 ```
 
+**Home Assistant（MQTT）**：模拟器里有一个假的 MQTT 服务器（`sim/sim_mqtt.c`），固件的 `ha_mqtt.c` 原样跑在它上面。在面板里随便填一个 `mqtt://` 地址后，`GET /sim/mqtt` 能看到史莱姆发出的全部消息（发现配置、状态、遗嘱、订阅）；`POST /sim/mqtt` 发 `话题\n内容` 相当于 Home Assistant 发来一条命令，`@drop` 模拟掉线重连，`@clear` 清空记录：
+
+```bash
+curl -d '{"mqtt_url":"mqtt://test"}' http://127.0.0.1:8080/api/ai
+curl -d $'slime/slime/set/say\n晚饭好了' http://127.0.0.1:8080/sim/mqtt
+curl http://127.0.0.1:8080/sim/mqtt
+```
+
 终端里也能输：`sim shake` 是模拟输入；其他行相当于在设备的 USB 串口里敲（比如 `state think`、`say happy 你好`、`cc 0000abcd 1 prompt`）。
 
 参数：`--port`、`--bind`、`--nvs FILE`（设置和等级跨次保留，默认每次重来）、`--scale 2`、`--headless`、`--quiet`、`--exit-after 秒 --screenshot 文件.bmp`。
@@ -97,6 +105,12 @@ The mouse is the touch screen; the keys are printed at start-up (and listed in t
 `POST /sim/input` takes the same inputs as text commands (`GET /sim/input` lists them) and
 `GET /sim/screen.bmp` returns the screen, for scripts and agents. On stdin, `sim <cmd>` is a
 simulated input and any other line goes to the pet as if typed on its USB console.
+
+Home Assistant: `sim/sim_mqtt.c` stands in for the MQTT client library and the broker, so the
+firmware's `ha_mqtt.c` runs unchanged. Save any `mqtt://` address in the panel (or `POST /api/ai`
+with `{"mqtt_url":"mqtt://test"}`); `GET /sim/mqtt` then shows everything the pet published,
+`POST /sim/mqtt` with `<topic>\n<payload>` delivers a command as Home Assistant would, `@drop`
+loses the connection and `@clear` empties the log.
 
 Differences from the board: sound and vibration are only logged, there is no camera picture
 (nod, head-shake and wave can be sent as events), Wi-Fi is always connected, OTA answers 403,

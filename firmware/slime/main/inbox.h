@@ -3,10 +3,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* Text command lines for the main loop, from any transport (USB CDC, HTTP). */
+/* Text command lines for the main loop, from any transport (USB CDC, HTTP, Home Assistant over MQTT). */
 #define INBOX_LINE_MAX 128
 
-typedef enum { SRC_USB = 0, SRC_WIFI } inbox_src_t;
+typedef enum { SRC_USB = 0, SRC_WIFI, SRC_MQTT } inbox_src_t;
 
 bool inbox_init(void);
 /* Thread-safe, non-blocking; false when full or too long. */

@@ -17,6 +17,7 @@
 #include "vision.h"
 #include "audio.h"
 #include "ota.h"
+#include "ha_mqtt.h"
 
 static const char *TAG = "web";
 
@@ -208,7 +209,8 @@ static esp_err_t h_config_post(httpd_req_t *req)
     return send_config(req);
 }
 
-/* The bridge's language model and speech-to-text endpoints (see config.h). API keys are write-only
+/* The bridge's language model and speech endpoints, and the MQTT broker (see config.h). API keys
+ * and the broker's password are write-only
  * for the panel: a GET shows whether one is set, and returns it only to a caller that has the
  * update token (the bridge reads bridge/.ota_token). */
 static esp_err_t send_ai(httpd_req_t *req)
@@ -240,7 +242,7 @@ static esp_err_t h_ai_get(httpd_req_t *req) { return send_ai(req); }
 
 static esp_err_t h_ai_post(httpd_req_t *req)
 {
-    static char body[BODY_MAX * 3]; /* ten fields of up to AI_VALUE_MAX; static: one request at a time */
+    static char body[BODY_MAX * 3]; /* every field at its longest is under 2 KB; static: one request at a time */
     if (read_body(req, body, sizeof body) != ESP_OK) return ESP_FAIL;
     cJSON *o = cJSON_Parse(body);
     memset(body, 0, sizeof body);
@@ -251,7 +253,8 @@ static esp_err_t h_ai_post(httpd_req_t *req)
     }
     /* A key belongs to the service it was entered for: when the address changes and no key comes
      * with it, the old key is dropped, so that nobody on the network can redirect it elsewhere. */
-    static const struct { ai_field_t url, key; } PAIRS[] = {{AI_LLM_URL, AI_LLM_KEY}, {AI_STT_URL, AI_STT_KEY}, {AI_TTS_URL, AI_TTS_KEY}};
+    static const struct { ai_field_t url, key; } PAIRS[] = {{AI_LLM_URL, AI_LLM_KEY}, {AI_STT_URL, AI_STT_KEY}, {AI_TTS_URL, AI_TTS_KEY},
+                                                            {AI_MQTT_URL, AI_MQTT_PASS}};
     for (size_t i = 0; i < sizeof PAIRS / sizeof PAIRS[0] && !bad; i++) {
         const cJSON *u = cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].url));
         if (u && strcmp(u->valuestring, ai_get(PAIRS[i].url)) && !cJSON_GetObjectItem(o, ai_field_name(PAIRS[i].key))) {
@@ -262,10 +265,12 @@ static esp_err_t h_ai_post(httpd_req_t *req)
         const cJSON *v = cJSON_GetObjectItem(o, ai_field_name(f));
         if (!v) continue;
         const esp_err_t e = ai_set(f, v->valuestring);
-        if (e == ESP_ERR_INVALID_ARG) bad = "too long, or an address that does not start with http:// or https://";
+        if (e == ESP_ERR_INVALID_ARG) bad = "too long, an address that does not start with http:// or https:// (the MQTT broker: mqtt:// or mqtts://, "
+                                            "user name and password in their own fields), or a device id with more than letters, digits, _ and -";
         else if (e != ESP_OK) bad = "could not save";
     }
     cJSON_Delete(o);
+    ha_reload(); /* reconnects only when the broker settings really changed */
     if (bad) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, bad);
     return send_ai(req);
 }

@@ -31,6 +31,7 @@ A desktop pet slime that lives on the [ESP-Mosaico](https://github.com/esp-mosai
 | **Sound** | Three-voice chiptune synthesizer (MML scores plus pitch glides) with an original boot tune, cues and two background tunes |
 | **Interaction module** (optional) | 6 RGB LEDs follow the state; buttons, PIR, light sensor |
 | **Everyday** | Chinese / English UI, clock and time-of-day greetings, a background that follows the time of day (dawn / day / dusk / night), quiet hours, a focus timer, sitting reminders and a help page |
+| **Home Assistant** | Enter an MQTT broker in the web panel and the slime connects by itself (no computer needed) and shows up in Home Assistant: presence (PIR), sees you (camera), ambient light, battery, Claude's state and "Claude is waiting for you" work as automation triggers; Home Assistant can make it talk, start focus, set volume and brightness, and switch music and quiet hours |
 | **Web panel** | Open `http://slime.local/`: live status, every setting, sound preview, the camera picture |
 | **Wireless updates** | Two-slot OTA; a new image must run for 30 s before it confirms itself, and a crash before that rolls back to the old one |
 
@@ -132,17 +133,31 @@ Hands free: say "Xiaolong Xiaolong" (小龙小龙), wait for "I'm here! Go ahead
 
 **Answers read aloud** (optional): the slime can speak its voice-chat answers, its mouth moving with the voice. Enter a "text-to-speech key" under "AI settings" in the web panel: with only a key it uses [Xiaomi MiMo](https://platform.xiaomimimo.com/) (free for now), model `mimo-v2.5-tts`, voice 冰糖; SiliconFlow (`https://api.siliconflow.cn/v1`, CosyVoice2) or any OpenAI-compatible `/audio/speech` API works too. With nothing set it tries the speech-to-text service. MiMo voices: 冰糖, 茉莉, 苏打, 白桦, Mia, Chloe, Milo, Dean; with model `mimo-v2.5-tts-voicedesign`, write a one-line description of the voice in the voice field to design your own. The computer synthesizes, the pet only plays it (16 kHz, up to 20 s a line). "Voice pitch" in the panel raises or lowers it (like a sped-up tape); "Read answers aloud" in the settings turns it off, and quiet hours keep it silent. The "Claude is waiting" lines use this voice too (shown only without one); `SLIME_NUDGE_ASK_S` / `SLIME_NUDGE_DONE_S` set their delays in seconds. The environment variables `SLIME_TTS_URL` / `SLIME_TTS_MODEL` / `SLIME_TTS_KEY` / `SLIME_TTS_VOICE` win when set; `python3 bridge/slime_tts.py "hello"` says one line, `python3 bridge/slime_tts.py config` shows the settings.
 
+**Home Assistant** (optional): the slime connects to the MQTT broker itself, without the computer. Open `http://slime.local/` and fill in, under "AI settings":
+
+| Field | What goes in |
+|---|---|
+| MQTT address | `mqtt://homeassistant.local:1883`; `mqtts://` for TLS (the broker's certificate has to come from a public authority; self-signed ones do not connect yet). Blank = off |
+| MQTT user name / password | Blank if the broker needs no login. A saved password is never shown again; do not put them inside the address (that is refused) |
+| Device ID | Blank = `slime`. Tells several slimes on one broker apart; the topics are `slime/<id>/...` |
+
+A few seconds after saving, Home Assistant's MQTT integration discovers it, no YAML. The "Home Assistant" line in the panel shows the connection.
+
+Sensors: someone there (the Interaction module's PIR), sees you (camera), ambient light, battery, charging, Claude's state, Claude waiting for you, level, quiet hours now, focus minutes left. Controls: say (`notify.send_message`; shown on the screen, not read aloud), start / stop focus, volume, screen brightness, background music, quiet hours. A sensor reads unknown while its module is unplugged or the camera is off. For instance: flash the living-room light when Claude waits for you, start a focus session when you leave the room, have the slime call you for dinner.
+
+The entities read unavailable while the slime is powered off or off the network (MQTT last will). What matters (presence, sees you, Claude's state, charging, focus, the switches) is reported at once; ambient light, battery and level at most every 30 seconds. After Home Assistant restarts, the discovery is sent again.
+
 ## Repository layout
 
 | Path | Contents |
 |---|---|
 | `firmware/slime/components/slime_core/` | Rendering core in plain C, no ESP-IDF dependency: rasterizer `sg`, state machine and jelly springs `slime_anim`, renderer `slime_render`, text `slime_text`, menu `slime_menu` |
-| `firmware/slime/main/` | Device side: main loop and "brain" (`main.c`), Claude Code session tracking `cc_track`, sensors `sensors`, audio and synthesizers `audio`, scores `tunes_original.h`, camera and face `vision`, networking `net`, web panel `web`, settings `config`/`settings_ui`, wireless updates `ota`, crash records `bootlog` |
+| `firmware/slime/main/` | Device side: main loop and "brain" (`main.c`), Claude Code session tracking `cc_track`, sensors `sensors`, audio and synthesizers `audio`, scores `tunes_original.h`, camera and face `vision`, networking `net`, Home Assistant over MQTT `ha_mqtt`, web panel `web`, settings `config`/`settings_ui`, wireless updates `ota`, crash records `bootlog` |
 | `firmware/slime/host/` | Host test program: renders images, benchmarks and runs unit tests with the same rendering code |
 | `firmware/slime/tools/` | USB flashing, wireless updates, glyph generation |
 | `firmware/slime/bootloader_components/` | Bootloader hook that holds the power on at once (otherwise the board cannot boot on battery) |
 | `firmware/slime/patches/` | A patch to the official BSP, applied automatically at build time |
-| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), speech `slime_tts.py`, Wi-Fi setup |
+| `bridge/` | Computer side: Claude Code hook `slime_hook.py`, memory and model calls `slime_brain.py`, the resident companion `slime_buddy.py` (proactive lines, diary, voice chat), speech `slime_tts.py`, usual hours `slime_rhythm.py`, Wi-Fi setup |
 | `design/slime_preview.html` | Browser design draft: the source of the look, the states and the jelly physics parameters |
 
 ## Rendering and testing on your computer

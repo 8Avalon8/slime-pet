@@ -213,6 +213,10 @@ def context(now=None, st=None, question=""):
 # ---------------- proactive lines ----------------
 
 
+FIRED_FILE = os.path.join(brain.HOME, "fired.json")
+FIRED_KEEP_S = 2 * 86400  # the longest-lived key is a day's ("night:2026-10-12")
+
+
 class Rules:
     def __init__(self):
         self.fired = {}          # key -> time
@@ -228,6 +232,22 @@ class Rules:
 
     def cooled(self, key, sec, now):
         return now - self.fired.get(key, 0) > sec
+
+    def restore(self, now):
+        """What was said before a restart (an update, a reboot), so the once-a-day lines and the
+        cooldowns hold across it."""
+        got = agent._load(FIRED_FILE, {})
+        if isinstance(got, dict):
+            self.fired.update((k, t) for k, t in got.items()
+                              if isinstance(t, (int, float)) and 0 <= now - t < FIRED_KEEP_S)
+
+    def mark(self, key, now):
+        self.fired[key] = now
+        self.fired = {k: t for k, t in self.fired.items() if now - t < FIRED_KEEP_S}
+        try:
+            agent._save(FIRED_FILE, self.fired)
+        except OSError:
+            pass
 
     def observe(self, st, now):
         cam = (st or {}).get("cam") or {}
@@ -654,6 +674,7 @@ def run():
     for line in brain.describe_settings() + tts.describe_settings():
         log("  " + line)
     rules, nudger, st, voice_seen = Rules(), Nudger(time.time()), None, None
+    rules.restore(time.time())
     next_rules, next_nudge, next_diary, last_line, offline_logged = 0, 0, 0, 0, False
     while True:
         now = time.time()
@@ -702,9 +723,9 @@ def run():
                 mood, text = proactive_line(rule, situation)
                 try:
                     say("remind" if rule == "wait" else mood, text)
-                    rules.fired[key] = now
                     if rule == "hello":
                         rules.fired["welcome"] = now  # one greeting is enough
+                    rules.mark(key, now)
                     last_line = time.time()
                     log("said (%s): %s" % (rule, text))
                 except Exception as e:

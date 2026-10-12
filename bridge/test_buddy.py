@@ -180,6 +180,24 @@ class Tools(unittest.TestCase):
 
 
 
+class Restart(unittest.TestCase):
+    def test_said_lines_survive_a_restart(self):
+        night = time.mktime((2026, 10, 13, 2, 0, 0, 0, 0, -1))
+        brain.journal_append("tool", "Bash: make", "aaaa1111", night - 30)
+        st = dict(STATUS, focus=0, night=True)
+        first = buddy.Rules()
+        hit = first.check(st, night)
+        self.assertEqual(hit[1], "night")
+        first.mark(hit[0], night)
+        fresh = buddy.Rules()
+        self.assertEqual(fresh.check(st, night + 60)[1], "night")  # nothing restored: it would repeat
+        fresh.restore(night + 60)
+        self.assertIsNone(fresh.check(st, night + 60))
+        later = buddy.Rules()
+        later.restore(night + 3 * 86400)  # old marks are dropped
+        self.assertEqual(later.fired, {})
+
+
 class Nudges(unittest.TestCase):
     """Claude waits for you: one spoken line per wait, after a delay, held while you are away."""
 

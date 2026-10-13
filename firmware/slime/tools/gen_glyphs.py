@@ -61,13 +61,15 @@ def render(font_big, ch, size):
     small = img.crop((x0, y0, x1, y1)).resize((w, h), Image.BOX)
     return small.tobytes(), (x0 - ox0) // SUPER, (y0 - oy0) // SUPER, w, h
 
+# sources whose Chinese is never drawn by the pet itself (Home Assistant shows those entity names)
+NOT_ON_SCREEN = {"ha_mqtt.c"}
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 
 def collect_chars():
     chars = {chr(c) for c in range(32, 127)}
     for src in sorted(CORE.glob("*.c")) + sorted((ROOT / "main").glob("*.c")):
-        if src.name == OUT.name:
+        if src.name == OUT.name or src.name in NOT_ON_SCREEN:
             continue
         for lit in LITERAL.findall(src.read_text(encoding="utf-8")):
             chars.update(ch for ch in lit if ord(ch) >= 0x80)

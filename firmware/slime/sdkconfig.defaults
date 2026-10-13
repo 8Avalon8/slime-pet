@@ -67,3 +67,12 @@ CONFIG_SR_MN_EN_NONE=y
 # firmware: the firmware runs from PSRAM, and models embedded in it would take 1.5 MB of it for good
 CONFIG_HAND_DETECT_MODEL_IN_FLASH_PARTITION=y
 CONFIG_HAND_GESTURE_CLS_MODEL_IN_FLASH_PARTITION=y
+
+# Home Assistant over MQTT (main/ha_mqtt.c). Internal RAM is the scarce one: the client's task
+# stack and buffers go to PSRAM (so nothing in its event handler may touch NVS or flash), on core 0
+# next to the web server. Plain TCP and TLS only, no WebSocket transports.
+CONFIG_MQTT_TASK_STACK_ON_EXTERNAL_MEMORY=y
+CONFIG_MQTT_BUFFERS_ON_EXTERNAL_MEMORY=y
+CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y
+CONFIG_MQTT_USE_CORE_0=y
+CONFIG_MQTT_TRANSPORT_WEBSOCKET=n

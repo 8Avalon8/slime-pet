@@ -33,7 +33,8 @@ bool sim_input(const char *cmd, char *err, size_t len);
 const char *sim_help(void);
 bool sim_screenshot(const char *path);
 
-void sim_http_extras(void); /* registers /sim/input and /sim/screen.bmp */
+void sim_http_extras(void); /* registers /sim/input, /sim/screen.bmp and /sim/mqtt */
+void sim_mqtt_http(void);    /* sim_mqtt.c: the stand-in MQTT broker, GET and POST /sim/mqtt */
 void sim_stdin_start(void); /* stdin lines -> the USB console (inbox), "sim ..." -> sim_input */
 
 void app_main(void); /* firmware/slime/main/main.c */

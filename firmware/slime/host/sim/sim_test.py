@@ -267,6 +267,134 @@ def run():
      else (failures.append("AI settings"), print("FAIL  AI settings: %r %r %r" % (plain, trusted, moved))))
 
     speech()
+    home_assistant()
+
+
+def home_assistant():
+    """Home Assistant over MQTT, from the device itself (main/ha_mqtt.c on the simulator's stand-in
+    broker, sim_mqtt.c): discovery, state, commands, and the password staying out of sight."""
+    def broker():
+        return json.loads(http("/sim/mqtt"))
+
+    def wait(what, cond, timeout=4.0):
+        t0, b = time.time(), None
+        while time.time() - t0 < timeout:
+            b = broker()
+            if cond(b):
+                print("ok    %s" % what)
+                return b
+            time.sleep(0.1)
+        failures.append(what)
+        print("FAIL  %s  (%r)" % (what, {k: v for k, v in b.items() if k != "msgs"}))
+        return b
+
+    def check(what, ok, detail=None):
+        print("ok    %s" % what) if ok else (failures.append(what), print("FAIL  %s  %r" % (what, detail)))
+
+    def refused(body):
+        try:
+            http("/api/ai", json.dumps(body))
+        except urllib.error.HTTPError as e:
+            return e.code == 400
+        return False
+
+    def states(b, node="desk"):
+        return [json.loads(m["payload"]) for m in b["msgs"] if m["topic"] == "slime/%s/state" % node]
+
+    def send(key, payload=""):
+        http("/sim/mqtt", "slime/desk/set/%s\n%s" % (key, payload))
+
+    http("/api/config", json.dumps({"lang": 0, "quiet": False}))
+    check("mqtt: off until a broker is set", status()["mqtt"] == "off" and not broker()["client"])
+    check("mqtt: address with a password in it, another scheme, or a bad id is refused",
+          refused({"mqtt_url": "mqtt://ha:secret@broker.test"}) and refused({"mqtt_url": "http://broker.test"})
+          and refused({"mqtt_id": "a/b"}) and status()["mqtt"] == "off")
+    http("/api/ai", json.dumps({"mqtt_url": "mqtt://broker.test:1883", "mqtt_user": "ha", "mqtt_pass": "s3cret", "mqtt_id": "desk"}))
+    plain = json.loads(http("/api/ai"))
+    check("mqtt: password hidden without the token",
+          plain.get("mqtt_pass_set") is True and "mqtt_pass" not in plain and plain.get("mqtt_user") == "ha", plain)
+    b = wait("mqtt: connected, state published", lambda b: b["connected"] and states(b))
+    check("mqtt: the broker got the credentials, the last will and the subscriptions",
+          b["uri"] == "mqtt://broker.test:1883" and b["user"] == "ha" and b["pass"] == "s3cret" and b["client_id"] == "slime-desk"
+          and b["will"] == {"topic": "slime/desk/status", "payload": "offline", "retain": True}
+          and b["subs"] == ["slime/desk/set/#", "homeassistant/status"], {k: v for k, v in b.items() if k != "msgs"})
+    conf = {m["topic"]: json.loads(m["payload"]) for m in b["msgs"] if m["topic"].startswith("homeassistant/")}
+    vol = conf.get("homeassistant/number/slime_desk/volume/config", {})
+    say = conf.get("homeassistant/notify/slime_desk/say/config", {})
+    motion = conf.get("homeassistant/binary_sensor/slime_desk/motion/config", {})
+    check("mqtt: 17 entities announced, all retained", len(conf) == 17 and all(m["retain"] for m in b["msgs"]), sorted(conf))
+    check("mqtt: discovery configs",
+          vol == {"name": "音量", "unique_id": "slime_desk_volume", "availability_topic": "slime/desk/status",
+                  "state_topic": "slime/desk/state", "value_template": "{{ value_json.volume }}",
+                  "command_topic": "slime/desk/set/volume", "min": 0, "max": 100, "step": 5, "icon": "mdi:volume-high",
+                  "device": {"identifiers": ["slime_pet_desk"], "name": "史莱姆桌宠", "manufacturer": "slime-pet",
+                             "model": "ESP-Mosaico", "configuration_url": "http://127.0.0.1/"}}
+          and say.get("command_topic") == "slime/desk/set/say" and "state_topic" not in say
+          and motion.get("device_class") == "occupancy" and "command_topic" not in motion, (vol, say, motion))
+    st = states(b)[-1]
+    check("mqtt: state", st.get("claude") == "idle" and st.get("waiting") == "OFF" and st.get("face") is None
+          and st.get("battery") == 90 and st.get("motion") == "OFF" and st.get("quiet") == "OFF" and len(st) == 14, st)
+    check("mqtt: online", any(m["topic"] == "slime/desk/status" and m["payload"] == "online" for m in b["msgs"]))
+    expect("mqtt: the panel shows it connected", lambda s: s["mqtt"] == "connected")
+
+    # commands from Home Assistant
+    send("volume", "30.0")
+    send("bgm", "OFF")
+    wait("mqtt: volume and music set from Home Assistant, and reported back",
+         lambda b: states(b)[-1].get("volume") == 30 and states(b)[-1].get("bgm") == "OFF")
+    cfg = json.loads(http("/api/config"))
+    check("mqtt: the settings really changed", cfg["volume"] == 30 and cfg["bgm"] is False and cfg["sound"] is True, cfg)
+    send("say", "晚饭好了，" + "快来吃饭" * 20)  # longer than one command line: cut between characters
+    s = expect("mqtt: say is shown", lambda s: "晚饭好了" in s.get("msg", ""))
+    check("mqtt: a long line is cut cleanly", s["msg"].endswith(("快来吃饭", "快", "快来", "快来吃")) and "\ufffd" not in s["msg"], s["msg"])
+    send("focus_start")
+    expect("mqtt: focus started", lambda s: s["focus"] > 0)
+    wait("mqtt: focus minutes reported", lambda b: states(b)[-1].get("focus") == json.loads(http("/api/config"))["focus_min"])
+    send("focus_stop")
+    expect("mqtt: focus stopped", lambda s: s["focus"] == 0)
+    hook("PermissionRequest", tool_name="Bash", tool_input={"command": "make"})
+    wait("mqtt: Claude waiting for you goes out at once",
+         lambda b: states(b)[-1].get("waiting") == "ON" and states(b)[-1].get("claude") == "wait", timeout=2)
+    hook("Stop")
+
+    # light is a slow one: not before HA_SLOW_S (3 s in the simulator) after the last state
+    wait("mqtt: no longer waiting", lambda b: states(b)[-1].get("waiting") == "OFF")
+    expect("idle again", state_is("idle"), timeout=30)
+    send("volume", "35")  # a fresh state right before, so that the wait is the whole HA_SLOW_S
+    wait("mqtt: settled", lambda b: states(b)[-1].get("volume") == 35)
+    time.sleep(0.3)
+    n, t0 = len(states(broker())), time.time()
+    sim("light 12")
+    time.sleep(1.0)
+    held = len(states(broker())) == n
+    wait("mqtt: light follows later", lambda b: states(b)[-1].get("light") == 12, timeout=5)
+    check("mqtt: light held back, then sent", held and time.time() - t0 > 1.5, (held, time.time() - t0))
+
+    # Home Assistant restarts, the connection drops: everything is announced again
+    for what, body in (("Home Assistant's birth message", "homeassistant/status\nonline"), ("a reconnect", "@drop")):
+        http("/sim/mqtt", "@clear")
+        http("/sim/mqtt", body)
+        wait("mqtt: discovery and state again after %s" % what,
+             lambda b: sum(m["topic"].startswith("homeassistant/") for m in b["msgs"]) == 17 and states(b))
+
+    # the names follow the pet's language; a new address without the password drops the old one; empty = off
+    http("/sim/mqtt", "@clear")
+    http("/api/config", json.dumps({"lang": 1}))
+    wait("mqtt: English names after the language changes", lambda b: any(
+        m["topic"] == "homeassistant/number/slime_desk/volume/config" and json.loads(m["payload"])["name"] == "Volume"
+        for m in b["msgs"]))
+    http("/api/config", json.dumps({"lang": 0}))
+    http("/api/ai", json.dumps({"mqtt_url": "mqtt://other.test"}))
+    b = wait("mqtt: reconnects to a new address, without the old password",
+             lambda b: b["connected"] and b.get("uri") == "mqtt://other.test" and b["pass"] == "")
+    check("mqtt: said offline before leaving the old broker",
+          any(m["topic"] == "slime/desk/status" and m["payload"] == "offline" for m in b["msgs"]))
+    http("/api/ai", json.dumps({"mqtt_user": "ha", "mqtt_pass": "wrong"}))
+    expect("mqtt: a refused password is said so in the panel", lambda s: s["mqtt"] == "refused")
+    http("/api/ai", json.dumps({"mqtt_pass": "right"}))
+    expect("mqtt: connected once the password is right", lambda s: s["mqtt"] == "connected")
+    http("/api/ai", json.dumps({"mqtt_url": "", "mqtt_user": "", "mqtt_id": ""}))
+    wait("mqtt: off again when the address is cleared", lambda b: not b["client"] and status()["mqtt"] == "off")
 
 
 def speech():

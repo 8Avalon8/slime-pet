@@ -128,6 +128,7 @@ typedef void *TaskHandle_t;
 BaseType_t xTaskCreatePinnedToCore(TaskFunction_t fn, const char *name, uint32_t stack, void *arg, UBaseType_t prio,
                                    TaskHandle_t *out, BaseType_t core);
 #define xTaskCreate(fn, name, stack, arg, prio, out) xTaskCreatePinnedToCore(fn, name, stack, arg, prio, out, -1)
+#define xTaskCreatePinnedToCoreWithCaps(fn, name, stack, arg, prio, out, core, caps) xTaskCreatePinnedToCore(fn, name, stack, arg, prio, out, core)
 void vTaskDelay(TickType_t ticks);
 void vTaskDelete(TaskHandle_t t);
 

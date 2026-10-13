@@ -32,3 +32,6 @@ dependencies:
 
   # Wake word on the device (WakeNet9); the model goes into the "model" partition
   espressif/esp-sr: "^2.4.7"
+
+  # Home Assistant over MQTT (main/ha_mqtt.c); the client left the IDF core in 6.0
+  espressif/mqtt: "^1"

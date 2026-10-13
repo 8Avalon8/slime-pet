@@ -36,4 +36,4 @@ bool inbox_pop(char *buf, size_t len, inbox_src_t *src)
     return true;
 }
 
-const char *inbox_src_name(inbox_src_t src) { return src == SRC_WIFI ? "wifi" : "usb"; }
+const char *inbox_src_name(inbox_src_t src) { return src == SRC_WIFI ? "wifi" : src == SRC_MQTT ? "mqtt" : "usb"; }

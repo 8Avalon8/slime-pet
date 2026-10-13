@@ -326,6 +326,8 @@ const char *sim_help(void)
            "  camera_stuck 0|1                        a camera module that is plugged in but never starts\n"
            "  battery SOC [MA] | battery off          fuel gauge; MA > 0 = charging\n"
            "  screenshot FILE.bmp\n"
+           "Home Assistant (after an MQTT address is saved in the panel): GET /sim/mqtt shows what the pet published;\n"
+           "  POST /sim/mqtt \"<topic>\\n<payload>\" delivers a message to it, \"@drop\" loses the connection, \"@clear\" empties the log\n"
            "other stdin lines go to the pet as if typed on its USB console (\"cc ...\", \"state think\", \"say happy hi\")\n";
 }
 
@@ -500,4 +502,5 @@ void sim_http_extras(void)
         {.uri = "/sim/input", .method = HTTP_GET, .handler = h_help},
     };
     for (size_t i = 0; i < sizeof u / sizeof u[0]; i++) httpd_register_uri_handler(NULL, &u[i]);
+    sim_mqtt_http();
 }

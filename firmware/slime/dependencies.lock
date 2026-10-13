@@ -554,6 +554,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.13.1
+  espressif/mqtt:
+    component_hash: fb18bc3b65aa8c94693a9811ffc322cca8a65d92d5ec84983d3e385080e3969c
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.1.0
   espressif/spi_nand_flash:
     component_hash: aa7bae693eee90b2e5e7cd63e67d41f5c30e61a501873b5c2d02838b1b9df6b8
     dependencies:
@@ -851,9 +861,10 @@ direct_dependencies:
 - espressif/hand_gesture_recognition
 - espressif/human_face_detect
 - espressif/mdns
+- espressif/mqtt
 - idf
 - mosaico_module_camera
 - mosaico_module_interact
-manifest_hash: 41623c8d459c4d1275bf4b85f1d57ce5af71a055c175f96d66453a6d282db0dd
+manifest_hash: f13541c8406a6a4bf150b655eb2782061a86e968bc89dc8fa5970735b4a03892
 target: esp32s31
 version: 3.0.0

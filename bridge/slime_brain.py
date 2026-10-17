@@ -366,12 +366,31 @@ def clip(text, max_chars, en):
     return text.rsplit(" ", 1)[0] if en and " " in text else text  # English: don't cut a word in half
 
 
+_TEXT_FIELD = re.compile(r'"text"\s*:\s*"((?:[^"\\]|\\.)*)')  # the string may be cut off before its closing quote
+_MOOD_FIELD = re.compile(r'"mood"\s*:\s*"(\w+)"')
+
+
 def _parse(out, max_chars, en=False):
+    """The model's reply -> (mood, text). A plain sentence is taken as it is. A reply that started as
+    JSON but is cut short (max_tokens, a dropped connection) or broken keeps what its "text" got to,
+    or "" so the caller falls back: the raw JSON is never the line."""
     m = re.search(r"\{.*\}", out, re.S)
     try:
-        data = json.loads(m.group(0)) if m else {"text": out}
+        data = json.loads(m.group(0)) if m else None
     except ValueError:
-        data = {"text": out}
+        data = None
+    if not isinstance(data, dict):
+        if "{" in out or '"text"' in out:
+            t, md = _TEXT_FIELD.search(out), _MOOD_FIELD.search(out)
+            text = ""
+            if t:
+                try:
+                    text = json.loads('"%s"' % t.group(1))
+                except ValueError:
+                    text = t.group(1)
+            data = {"text": text, "mood": md.group(1) if md else None}
+        else:
+            data = {"text": out}
     text = clip(" ".join(str(data.get("text", "")).split()).strip("\"'“”"), max_chars, en)
     mood = data.get("mood") if data.get("mood") in MOODS else "neutral"
     return mood, text

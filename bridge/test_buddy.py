@@ -242,5 +242,34 @@ class Nudges(unittest.TestCase):
         self.assertIsNone(n.due([self.ev(10, "stop")], NOW + 61))  # dropped, not saved for the morning
         self.assertEqual(n.due([self.ev(100, "ask")], NOW + 130, night=True)[0], "ask")
 
+
+class Parse(unittest.TestCase):
+    """The model's reply is meant to be {"text","mood"}: whatever comes back, raw JSON is never the line."""
+
+    def test_whole_json_and_plain_text(self):
+        self.assertEqual(brain._parse('{"text":"早点睡哦","mood":"worried"}', 17), ("worried", "早点睡哦"))
+        self.assertEqual(brain._parse('```json\n{"mood":"happy","text":"干得漂亮"}\n```', 17), ("happy", "干得漂亮"))
+        self.assertEqual(brain._parse("早点睡哦", 17), ("neutral", "早点睡哦"))
+
+    def test_cut_short(self):
+        # 2026-10-13 02:30 on the HA host: said (night): {"text":"凌晨两点半啦，快
+        self.assertEqual(brain._parse('{"text":"凌晨两点半啦，快去睡', 17), ("neutral", "凌晨两点半啦，快去睡"))
+        self.assertEqual(brain._parse('{"mood":"worried","text":"别熬\\', 17), ("worried", "别熬"))
+        self.assertEqual(brain._parse('{"text":"说\\"晚安\\"吧"', 17), ("neutral", "说\"晚安\"吧"))
+
+    def test_json_without_text(self):
+        for out in ('{"text":', '{"mood":"happy"', '{"msg":"晚安"}', '{"text": 3'):
+            self.assertEqual(brain._parse(out, 17)[1], "", out)
+
+    def test_proactive_line_falls_back(self):
+        with mock.patch.object(buddy, "context", return_value=([], "")), \
+                mock.patch.object(brain, "chat", return_value='{"text":'):
+            self.assertEqual(buddy.proactive_line("night", "凌晨两点半"), buddy.FALLBACK["night"])
+        with mock.patch.object(buddy, "context", return_value=([], "")), \
+                mock.patch.object(brain, "chat", return_value='{"text":"凌晨两点半啦，快'):
+            mood, text = buddy.proactive_line("night", "凌晨两点半")
+            self.assertTrue(text and not set(text) & set('{}":'), text)
+
+
 if __name__ == "__main__":
     unittest.main()
